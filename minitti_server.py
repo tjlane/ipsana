@@ -10,7 +10,6 @@ import time
 
 import numpy as np
 import psana 
-from AngularIntegration_00 import *
 
 # ZMQ RELATED MODULES
 import zmq
@@ -29,8 +28,7 @@ socket.bind("tcp://*:%d" % 12322)
 # PSANA CONFIG FILE - this must be set before a datasource is created
 print os.path.abspath(__file__)
 basedir = os.path.split(os.path.abspath( __file__ ))[0]
-#configFileName = os.path.join(basedir,"xpp83814_r94.cfg")
-configFileName = os.path.join(basedir,"cspad_radial.cfg")
+configFileName = os.path.join(basedir,"minitti.cfg")
 assert os.path.exists(configFileName), "config file not found, looked for: %s" % configFileName
 psana.setConfigFile(configFileName)
 psana.setOption('psana.l3t-accept-only',0)
@@ -38,11 +36,10 @@ psana.setOption('psana.l3t-accept-only',0)
 imgkey = 'image0'  
 
 # Define experiment, run. Shared memory syntax (for SXR): shmem=0_1_SXR.0:stop=no
-#ds = psana.DataSource('exp=xpp83814:run=94') 
 ds = psana.DataSource('exp=xppi0613:run=275') 
 
-cspadSrc = psana.Source('DetInfo(XppGon.0:Cspad.0)')
-evrSrc = psana.Source('DetInfo(NoDetector.0:Evr.0)')
+cspadSrc  = psana.Source('DetInfo(XppGon.0:Cspad.0)')
+evrSrc    = psana.Source('DetInfo(NoDetector.0:Evr.0)')
 FEEGasSrc = psana.Source('BldInfo(FEEGasDetEnergy)')
 statusPrintout = 100      # print a status every on the Nth shot
 updatePlots = 100         # carry out radial integration and update plots every N good shots
@@ -118,7 +115,8 @@ def getBeamLaserFromEvr(evrData,laserOnEvrCode,noBeamEvrCode):
         laserOn = True
     else:
         laserOn = False
-    return beamPresent, laserOn
+
+    return beamPresent, laserOn # this is XFEL/UV
 
 # ------ end helper functions
 
