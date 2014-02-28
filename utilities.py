@@ -54,56 +54,71 @@ def pumpprobe_status(evr_data):
     return xfel_status, uv_status
     
     
-def radial_average(image, q_values, mask, n_bins=100):
-    """
-    Bin pixel intensities by their momentum transfer.
-
-    Parameters
-    ----------            
-    image : np.ndarray
-        The intensity at each pixel, same shape as pixel_pos
-    q_values : np.ndarray (float)
-        For each pixel, this is the momentum transfer value of that pixel
-    mask : np.ndarray (int)
-        A boolean (int) saying if each pixel is masked or not
-    n_bins : int
-        The number of bins to employ. If `None` guesses a good value.
-
-    Returns
-    -------
-    bin_centers : ndarray, float
-        The q center of each bin.
-
-    bin_values : ndarray, int
-        The average intensity in the bin.
-    """
+class RadialAverager(object):
     
-    if not (image.shape == q_values.shape):
-        raise ValueError('`image` and `q_values` must have the same shape')
-    if not (image.shape == mask.shape):
-        raise ValueError('`image` and `mask` must have the same shape')
+    def __init__(self, q_values, mask, n_bins=100):
+        """
+        Parameters
+        ----------
+        q_values : np.ndarray (float)
+            For each pixel, this is the momentum transfer value of that pixel
+        mask : np.ndarray (int)
+            A boolean (int) saying if each pixel is masked or not
+        n_bins : int
+            The number of bins to employ. If `None` guesses a good value.
+        """
+        
+        self.q_values = q_values
+        self.mask = mask
+        self.n_bins = n_bins
+        
+        # figure out the number of bins to use
+        if n_bins != None:
+            bin_factor = float(self.n_bins) / self.q_values.max()
+        else:
+            bin_factor = 25.0
+        
+        self._bin_assignments = np.floor( q_values * bin_factor ).astype(np.int32)
+        
+        self.mask = enforce_raw_img_shape(self.mask) 
+        self.mask = self.mask.astype(np.int).flatten()
+        
+        return
     
-    # figure out the number of bins to use
-    if n_bins != None:
-        bin_factor = float(n_bins) / q_values.max()
-    else:
-        bin_factor = 25.0
-    
-    bin_assignments = np.floor( q_values * bin_factor ).astype(np.int32)
-   
-    mask = enforce_raw_img_shape(mask) 
-    mask = mask.astype(np.int).flatten()
+    def __call__(self, image):
+        """
+        Bin pixel intensities by their momentum transfer.
+        
+        Parameters
+        ----------            
+        image : np.ndarray
+            The intensity at each pixel, same shape as pixel_pos
 
-    image = enforce_raw_img_shape(image)
 
-    weights = image.flatten() * mask
-    bin_values = np.bincount(bin_assignments.flatten(), weights=weights)
-    bin_values /= (np.bincount( bin_assignments.flatten(), weights=mask ) \
-                                + 1e-100).astype(np.float)[:bin_values.shape[0]]
+        Returns
+        -------
+        bin_centers : ndarray, float
+            The q center of each bin.
+
+        bin_values : ndarray, int
+            The average intensity in the bin.
+        """
+        
+        if not (image.shape == self.q_values.shape):
+            raise ValueError('`image` and `q_values` must have the same shape')
+        if not (image.shape == self.mask.shape):
+            raise ValueError('`image` and `mask` must have the same shape')
     
-    bin_centers = np.arange(bin_values.shape[0]) / bin_factor
+        image = enforce_raw_img_shape(image)
+
+        weights = image.flatten() * self.mask
+        bin_values = np.bincount(self._bin_assignments.flatten(), weights=weights)
+        bin_values /= (np.bincount( self._bin_assignments.flatten(), weights=self.mask ) \
+                                    + 1e-100).astype(np.float)[:bin_values.shape[0]]
     
-    return bin_centers, bin_values
+        bin_centers = np.arange(bin_values.shape[0]) / bin_factor
+    
+        return bin_centers, bin_values
 
 
 def normalize(q_values, intensities, q_min=0.5, q_max=3.5):

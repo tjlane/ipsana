@@ -111,6 +111,8 @@ shot_result = 'no data'
 t0 = time.time()
 s0 = 0 # shot counter
 
+ra = RadialAvergager(geometry, mask)
+
 for i,evt in enumerate(ds.events()):
     
     EVR_code = evt.get(psana.EvrData.DataV3, evr_src)
@@ -152,9 +154,9 @@ for i,evt in enumerate(ds.events()):
         and (n_laser_on_shots > 0):
 
         # === compute radial averages ===
-        bins1, evt_rad     = radial_average(corrected_image, geometry, mask)
-        bins2, avg_rad_on  = radial_average(laser_on, geometry, mask)
-        bins3, avg_rad_off = radial_average(laser_off, geometry, mask)
+        bins1, evt_rad     = ra(corrected_image)
+        bins2, avg_rad_on  = ra(laser_on)
+        bins3, avg_rad_off = ra(laser_off)
 
         # normalize from 0.5 to 3.5 inv ang
         evt_rad = normalize(bins1, evt_rad)
