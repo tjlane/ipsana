@@ -109,7 +109,7 @@ def radial_average(image, q_values, mask, n_bins=100):
 def normalize(q_values, intensities, q_min=0.5, q_max=3.5):
     assert q_values.shape == intensities.shape
     inds = (q_values > q_min) * (q_values < q_max)
-    factor = float(np.sum(intensities[inds]))
+    factor = float(np.sum(intensities[inds])) / float(np.sum(inds))
     return intensities / factor
 
 

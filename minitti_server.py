@@ -157,13 +157,13 @@ for i,evt in enumerate(ds.events()):
         bins3, avg_rad_off = radial_average(laser_off, geometry, mask)
 
         # normalize from 0.5 to 3.5 inv ang
-        evt_rad = normalize(bins1, evt_rad)
-        avg_rad_on = normalize(bins2, avg_rad_on)
-        avg_rad_off = normalize(bins2, avg_rad_off)
+        n_evt_rad     = normalize(bins1, evt_rad)
+        n_avg_rad_on  = normalize(bins2, avg_rad_on)
+        n_avg_rad_off = normalize(bins3, avg_rad_off)
 
         # --- any data massaging for laser on/off ---
-        laser_onoff_diff = avg_rad_on - avg_rad_off
-        laser_onoff_percdiff = laser_onoff_diff / avg_rad_on
+        laser_onoff_diff = n_avg_rad_on - n_avg_rad_off
+        laser_onoff_percdiff = laser_onoff_diff / n_avg_rad_on
 
         # ==============================
         # PUBLISH DATA VIA ZMQ    
