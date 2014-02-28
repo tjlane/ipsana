@@ -68,20 +68,17 @@ class RadialAverager(object):
             The number of bins to employ. If `None` guesses a good value.
         """
         
-        self.q_values = q_values
-        self.mask = mask
+        self.q_values = enforce_raw_img_shape(q_values)
+        self.mask = enforce_raw_img_shape(mask).astype(np.int)
         self.n_bins = n_bins
         
         # figure out the number of bins to use
         if n_bins != None:
-            bin_factor = float(self.n_bins) / self.q_values.max()
+            self._bin_factor = float(self.n_bins) / self.q_values.max()
         else:
-            bin_factor = 25.0
+            self._bin_factor = 25.0
         
-        self._bin_assignments = np.floor( q_values * bin_factor ).astype(np.int32)
-        
-        self.mask = enforce_raw_img_shape(self.mask) 
-        self.mask = self.mask.astype(np.int).flatten()
+        self._bin_assignments = np.floor( q_values * self._bin_factor ).astype(np.int32)
         
         return
     
@@ -103,20 +100,20 @@ class RadialAverager(object):
         bin_values : ndarray, int
             The average intensity in the bin.
         """
+
+        image = enforce_raw_img_shape(image)
         
         if not (image.shape == self.q_values.shape):
             raise ValueError('`image` and `q_values` must have the same shape')
         if not (image.shape == self.mask.shape):
             raise ValueError('`image` and `mask` must have the same shape')
-    
-        image = enforce_raw_img_shape(image)
 
-        weights = image.flatten() * self.mask
+        weights = image.flatten() * self.mask.flatten()
         bin_values = np.bincount(self._bin_assignments.flatten(), weights=weights)
-        bin_values /= (np.bincount( self._bin_assignments.flatten(), weights=self.mask ) \
+        bin_values /= (np.bincount( self._bin_assignments.flatten(), weights=self.mask.flatten() ) \
                                     + 1e-100).astype(np.float)[:bin_values.shape[0]]
     
-        bin_centers = np.arange(bin_values.shape[0]) / bin_factor
+        bin_centers = np.arange(bin_values.shape[0]) / self._bin_factor
     
         return bin_centers, bin_values
 

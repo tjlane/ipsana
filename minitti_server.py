@@ -111,7 +111,7 @@ shot_result = 'no data'
 t0 = time.time()
 s0 = 0 # shot counter
 
-ra = RadialAvergager(geometry, mask)
+ra = RadialAverager(geometry, mask)
 
 for i,evt in enumerate(ds.events()):
     
