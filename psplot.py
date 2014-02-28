@@ -1,6 +1,8 @@
+
+import numpy as np
+
 import matplotlib.pyplot as plt
 import matplotlib.animation as animation
-
 
 class PlotInfo(object):
     def __init__(self, xrange=None, yrange=None, zrange=None, aspect=None):
