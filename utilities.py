@@ -28,7 +28,7 @@ def pumpprobe_status(evr_data):
     # return is (xfel_status, uv_status)
     evr_legend = {90  : (1, 1), # uv on/xray on
                   91  : (1, 0), # uv off/xray on
-                  162 : (0, 0)] # all dark
+                  162 : (0, 0)} # all dark
     
     
     # First experiment :: xppi0
@@ -48,7 +48,7 @@ def pumpprobe_status(evr_data):
     for fifoEvent in evr_data.fifoEvents():
         if fifoEvent.eventCode() in evr_legend.keys():
             xfel_status, uv_status = evr_legend[fifoEvent.eventCode()]
-            print "\tEVR EVENT: %d || XRAY: %d || UV: %d" % (fifoEvent.eventCode(), xfel_status, uv_status)
+            #print "\tEVR EVENT: %d || XRAY: %d || UV: %d" % (fifoEvent.eventCode(), xfel_status, uv_status)
 
     return xfel_status, uv_status
     
@@ -84,7 +84,7 @@ def radial_average(image, q_values, mask, n_bins=100):
     
     # figure out the number of bins to use
     if n_bins != None:
-        bin_factor = float(n_bins) / radii.max()
+        bin_factor = float(n_bins) / q_values.max()
     else:
         bin_factor = 25.0
     

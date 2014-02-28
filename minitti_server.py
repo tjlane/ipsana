@@ -3,6 +3,7 @@
 import os
 import sys
 import time
+import argparse
 
 import numpy as np
 import psana 
@@ -45,12 +46,19 @@ parser.add_argument(
 parser.add_argument(
     '-r',
     '--run',
-    metavar='aspect',
     type=int,
     default=-1,
-    help='Which run to analyze. If no parameter specified (default), attempt to \
-          lock onto the shared memory data stream.'
+    help='Which run to analyze, -1 for live stream',
 )
+
+parser.add_argument(
+    '-t',
+    '--threshold',
+    type=int,
+    default=0,
+    help='An intensity threshold value',
+)
+
 
 args = parser.parse_args()
 
@@ -78,17 +86,17 @@ print "Loading psana config file:    %s" % config_fn
 
 # Aquire the geometry and mask
 print "Loading geometry from:        %s" % args.geometry
-geometry = np.load(args.geometry)
+geometry = np.abs(np.load(args.geometry))
 print "Loading pixel mask from:      %s" % args.mask
 mask = np.load(args.mask)
 
 # Define experiment, run. Shared memory syntax (for SXR): shmem=0_1_SXR.0:stop=no
 if args.run >= 0:
-    print "\nLocking on to shared memory..."
-    ds = psana.DataSource('exp=xppi0613:run=275')
+    print "\nReading run #: %d" % args.run
+    ds = psana.DataSource('exp=xppb0114:run=%d' % args.run)
 elif args.run == -1:
     print "\nLocking on to shared memory..."
-    ds = psana.DataSource('shmem=0_1_SXR.0:stop=no')
+    ds = psana.DataSource('shmem=0_1_XPP.0:stop=no')
 else:
     raise ValueError('`run` parameter must either be an int corresponding to a '
                      'run, or the keyword "online"')
@@ -107,6 +115,8 @@ calib = ds.env().calibStore()
 laser_on  = np.zeros((32, 185, 194*2))
 laser_off = np.zeros((32, 185, 194*2))
 
+shot_index = 0
+
 n_laser_on_shots  = 0
 n_laser_off_shots = 0
 
@@ -119,22 +129,23 @@ for i,evt in enumerate(ds.events()):
         continue
         
     cspad = evt.get(psana.CsPad.DataV2, cspad_src)
-    corrected_cspad = evt.get(psana.CsPad.DataV2, src, 'calibrated_ndarr')
+    #corrected_cspad = evt.get(psana.CsPad.DataV2, cspad_src, 'calibrated_ndarr')
 
     # extract useful data
     raw_image       = np.vstack([ cspad.quads(i).data() for i in range(4) ])
-    corrected_image = np.vstack([ corrected_cspad.quads(i).data() for i in range(4) ])
+    #corrected_image = np.vstack([ corrected_cspad.quads(i).data() for i in range(4) ])
+    corrected_image = raw_image.copy()
 
     assert raw_image.shape == (32, 185, 194*2)
     assert corrected_image.shape == (32, 185, 194*2)
 
-    xfel_status, uv_status = pumpprob_status(EVR_code)
+    xfel_status, uv_status = pumpprobe_status(EVR_code)
     
     # === filter for bad shots ===
     
     # filter 
-    if corrected_image.sum() > threshold:
-        print "-- bad shot"
+    if corrected_image.sum() < args.threshold:
+        print "-- bad shot :: intensity too low"
         continue
     
     # === accumulate the results ===
@@ -154,23 +165,19 @@ for i,evt in enumerate(ds.events()):
 
 
     # === compute radial averages ===
-    evt_rad     = radial_average(corrected_image, geometry, mask)
-    avg_rad_on  = radial_average(laser_on, geometry, mask)
-    avg_rad_off = radial_average(laser_off, geometry, mask)
+    bins, evt_rad     = radial_average(corrected_image, geometry, mask)
+    bins, avg_rad_on  = radial_average(laser_on, geometry, mask)
+    bins, avg_rad_off = radial_average(laser_off, geometry, mask)
 
     # ==============================
     # PUBLISH DATA VIA ZMQ    
     # ==============================
-    rad_avg_plot = XYPlotData(goodEvents, "I(q) Laser On & Off",
-                              radialPointsAvg, angularIntegAvg)
-    socket.send("rad-avg", zmq.SNDMORE)
+    rad_avg_plot = XYPlotData(n_laser_off_shots + n_laser_on_shots,
+                               "I(q) Laser On & Off",
+                              bins, evt_rad)
+    socket.send("radavg", zmq.SNDMORE)
     socket.send_pyobj(rad_avg_plot)
-    
-    
-    rad_diff_plot = XYPlotData(goodEvents, "I(q) Laser On/Off Difference",
-                               radialPointsAvg, angularIntegAvg)
-    socket.send("rad-diff", zmq.SNDMORE)
-    socket.send_pyobj(rad_diff_plot)
+        
+    print "Run: %d | Shot %d | %s" % (args.run, shot_index, shot_result)
+    shot_index += 1
 
-
-    print "Run: %d | Shot %d | %s" % (args.run, i, shot_result)
