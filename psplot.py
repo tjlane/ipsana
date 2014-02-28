@@ -77,10 +77,19 @@ class Hist(Plot):
 class XYPlot(Plot):
     def __init__(self, init_plot, datagen, info, rate=1):
         super(XYPlot, self).__init__(init_plot, datagen, info, rate)
-        self.plot = self.ax.plot(init_plot.xdata, init_plot.ydata)
+        self.plot = self.ax.plot(init_plot.xdata, init_plot.ydata, lw=2)
 
     def update(self, data):
         if data is not None:
             self.ax.set_title(data.ts, loc='right')
-            self.plot[0].set_data(data.xdata, data.ydata)
+            for i in range(data.ydata.shape[1]):
+                self.plot[i].set_data(data.xdata, data.ydata[:,i])
         return self.plot
+
+
+class IvsQPlot(XYPlot):
+    def __init__(self, init_plot, datagen, info, rate=1):
+        super(IvsQPlot, self).__init__(init_plot, datagen, info, rate)
+        plt.xlabel(r'Momentum Transfer $(\AA^{-1})$')
+        plt.ylabel('Intensity')
+

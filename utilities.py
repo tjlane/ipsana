@@ -1,11 +1,12 @@
 
 import numpy as np
 
+from pypad.read import enforce_raw_img_shape
+
 # Use first EVR code
 # uv on  & x-ray on: 140
 # uv off & x-ray on: 41, 67, 141
 # all dark: 162, 163
-
 
 def update_average(n, A, B):
     '''
@@ -44,7 +45,7 @@ def pumpprobe_status(evr_data):
     #               163 : (0, 0)} 
     #               
     
-    xfel_status, uv_status = (None, None)
+    xfel_status, uv_status = (1,1) # default if no EVR code matches
     for fifoEvent in evr_data.fifoEvents():
         if fifoEvent.eventCode() in evr_legend.keys():
             xfel_status, uv_status = evr_legend[fifoEvent.eventCode()]
@@ -89,11 +90,18 @@ def radial_average(image, q_values, mask, n_bins=100):
         bin_factor = 25.0
     
     bin_assignments = np.floor( q_values * bin_factor ).astype(np.int32)
-    
-    weights = image.flatten() * mask.astype(np.int).flatten()
+   
+    mask = enforce_raw_img_shape(mask) 
+    mask = mask.astype(np.int).flatten()
+
+    image = enforce_raw_img_shape(image)
+
+    weights = image.flatten() * mask
     bin_values = np.bincount(bin_assignments.flatten(), weights=weights)
-    bin_values /= (np.bincount(bin_assignments.flatten() ) + 1e-100).astype(np.float)[:bin_values.shape[0]]
+    bin_values /= (np.bincount( bin_assignments.flatten(), weights=mask ) \
+                                + 1e-100).astype(np.float)[:bin_values.shape[0]]
     
     bin_centers = np.arange(bin_values.shape[0]) / bin_factor
     
     return bin_centers, bin_values
+

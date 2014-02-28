@@ -31,3 +31,11 @@ class XYPlotData(Data):
         super(XYPlotData, self).__init__(ts, title)
         self.xdata = xdata
         self.ydata = ydata
+
+class IqPlotData(Data):
+
+    def __init__(self, ts, title, xdata, ydata):
+        super(IqPlotData, self).__init__(ts, title)
+        self.xdata = xdata
+        self.ydata = ydata
+

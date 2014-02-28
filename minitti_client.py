@@ -4,8 +4,8 @@ import sys
 import time
 import argparse
 
-from psdata import HistData, ImageData, XYPlotData
-from psplot import Hist, Image, XYPlot, PlotInfo
+from psdata import HistData, ImageData, XYPlotData, IqPlotData
+from psplot import Hist, Image, XYPlot, PlotInfo, IvsQPlot
 import matplotlib.pyplot as plt
 
 
@@ -13,6 +13,7 @@ TypeMap = {
     HistData: Hist,
     ImageData: Image,
     XYPlotData: XYPlot,
+    IqPlotData: IvsQPlot
 }
 
 
@@ -128,6 +129,7 @@ def main():
         socket.setsockopt(zmq.SUBSCRIBE, args.topic)
         socket.setsockopt(zmq.RCVHWM, args.buffer)
         socket.connect("tcp://%s:%d" % (args.server, args.port))
+        print "Listening for topic %s from %s on port %d" % (args.topic, args.server, args.port)
 
         # create the plot info object from cmd args
         info = PlotInfo(args.x_range, args.y_range, args.z_range, args.aspect)

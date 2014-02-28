@@ -11,7 +11,7 @@ import psana
 import zmq
 
 from psdata import ImageData
-from psdata import XYPlotData
+from psdata import IqPlotData
 
 from utilities import *
 
@@ -25,22 +25,6 @@ parser.add_argument(
     type=int,
     default=5556,
     help='the tcp port to use on the server'
-)
-
-parser.add_argument(
-    '-g',
-    '--geometry',
-    type=str,
-    default='default_geometry.npy',
-    help='A numpy array on disk specifying the q-values for each bin'
-)
-
-parser.add_argument(
-    '-m',
-    '--mask',
-    type=str,
-    default='default_mask.npy',
-    help='A numpy array on disk specifying the masked pixels'
 )
 
 parser.add_argument(
@@ -85,10 +69,13 @@ psana.setOption('psana.l3t-accept-only',0)
 print "Loading psana config file:    %s" % config_fn
 
 # Aquire the geometry and mask
-print "Loading geometry from:        %s" % args.geometry
-geometry = np.abs(np.load(args.geometry))
-print "Loading pixel mask from:      %s" % args.mask
-mask = np.load(args.mask)
+geometry_filename = '/reg/neh/home2/tjlane/analysis/xppb0114/geometries/v1/v1_q_geom.npy'
+print "Loading geometry from:        %s" % geometry_filename
+geometry = np.load(geometry_filename).reshape(32,185,388)
+
+mask_filename = '/reg/neh/home2/tjlane/analysis/xppb0114/geometries/v1/mask.npy'
+print "Loading pixel mask from:      %s" % mask_filename
+mask = np.load(mask_filename).reshape(32,185,388)
 
 # Define experiment, run. Shared memory syntax (for SXR): shmem=0_1_SXR.0:stop=no
 if args.run >= 0:
@@ -104,7 +91,7 @@ else:
 cspad_src  = psana.Source('DetInfo(XppGon.0:Cspad.0)')
 evr_src    = psana.Source('DetInfo(NoDetector.0:Evr.0)')
 
-plot_update_frequency = 10
+update_frequency = 10
 
 
 # ------ END CONFIG ---------
@@ -121,6 +108,8 @@ n_laser_on_shots  = 0
 n_laser_off_shots = 0
 
 shot_result = 'no data'
+t0 = time.time()
+s0 = 0 # shot counter
 
 for i,evt in enumerate(ds.events()):
     
@@ -129,12 +118,8 @@ for i,evt in enumerate(ds.events()):
         continue
         
     cspad = evt.get(psana.CsPad.DataV2, cspad_src)
-    #corrected_cspad = evt.get(psana.CsPad.DataV2, cspad_src, 'calibrated_ndarr')
-
-    # extract useful data
+    corrected_image = evt.get(psana.ndarray_float32_3, cspad_src, 'calibrated_ndarr')
     raw_image       = np.vstack([ cspad.quads(i).data() for i in range(4) ])
-    #corrected_image = np.vstack([ corrected_cspad.quads(i).data() for i in range(4) ])
-    corrected_image = raw_image.copy()
 
     assert raw_image.shape == (32, 185, 194*2)
     assert corrected_image.shape == (32, 185, 194*2)
@@ -163,20 +148,49 @@ for i,evt in enumerate(ds.events()):
     else:                                 # no scattering data...
         shot_result = 'xfel off'
 
+    if ((n_laser_on_shots + n_laser_off_shots) % update_frequency == 0) \
+        and (n_laser_on_shots > 0):
 
-    # === compute radial averages ===
-    bins, evt_rad     = radial_average(corrected_image, geometry, mask)
-    bins, avg_rad_on  = radial_average(laser_on, geometry, mask)
-    bins, avg_rad_off = radial_average(laser_off, geometry, mask)
+        # === compute radial averages ===
+        bins1, evt_rad     = radial_average(corrected_image, geometry, mask)
+        bins2, avg_rad_on  = radial_average(laser_on, geometry, mask)
+        bins3, avg_rad_off = radial_average(laser_off, geometry, mask)
 
-    # ==============================
-    # PUBLISH DATA VIA ZMQ    
-    # ==============================
-    rad_avg_plot = XYPlotData(n_laser_off_shots + n_laser_on_shots,
-                               "I(q) Laser On & Off",
-                              bins, evt_rad)
-    socket.send("radavg", zmq.SNDMORE)
-    socket.send_pyobj(rad_avg_plot)
+        # --- any data massaging for laser on/off ---
+        laser_onoff_diff = avg_rad_on - avg_rad_off
+
+        # ==============================
+        # PUBLISH DATA VIA ZMQ    
+        # ==============================
+        rad_evt_plot = IqPlotData(n_laser_off_shots + n_laser_on_shots,
+                                "I(q) Instantaneous",
+                                 bins1, evt_rad)
+        socket.send("radevt", zmq.SNDMORE)
+        socket.send_pyobj(rad_evt_plot)
+
+
+        plotdata = np.hstack((avg_rad_on[:,None], avg_rad_off[:,None]))
+        rad_avg_plot = IqPlotData(n_laser_off_shots + n_laser_on_shots,
+                                "I(q) Laser On & Off Averages",
+                                 bins2, plotdata)
+        socket.send("radavg", zmq.SNDMORE)
+        socket.send_pyobj(rad_avg_plot)
+
+
+        rad_diff_plot = IqPlotData(n_laser_off_shots + n_laser_on_shots,
+                                "I(q) Laser On/Off Difference",
+                                 bins3, laser_onoff_diff)
+        socket.send("raddiff", zmq.SNDMORE)
+        socket.send_pyobj(rad_diff_plot)
+
+
+        delta_t = time.time() - t0
+        t0 = time.time()
+
+        shot_rate = float(shot_index - s0) / delta_t
+        s0 = shot_index
+
+        print '\t--> sending results (%d Hz)' % (shot_rate)
         
     print "Run: %d | Shot %d | %s" % (args.run, shot_index, shot_result)
     shot_index += 1
