@@ -69,7 +69,7 @@ psana.setOption('psana.l3t-accept-only',0)
 print "Loading psana config file:    %s" % config_fn
 
 # Aquire the geometry and mask
-geometry_filename = '/reg/neh/home2/tjlane/analysis/xppb0114/geometries/v1/v1_q_geom.npy'
+geometry_filename = '/reg/neh/home2/tjlane/analysis/xppb0114/geometries/v1/v2_q_geom.npy'
 print "Loading geometry from:        %s" % geometry_filename
 geometry = np.load(geometry_filename).reshape(32,185,388)
 
@@ -83,7 +83,7 @@ if args.run >= 0:
     ds = psana.DataSource('exp=xppb0114:run=%d' % args.run)
 elif args.run == -1:
     print "\nLocking on to shared memory..."
-    ds = psana.DataSource('shmem=0_1_XPP.0:stop=no')
+    ds = psana.DataSource('shmem=1_1_psana_XPP.0:stop=no')
 else:
     raise ValueError('`run` parameter must either be an int corresponding to a '
                      'run, or the keyword "online"')
@@ -91,7 +91,7 @@ else:
 cspad_src  = psana.Source('DetInfo(XppGon.0:Cspad.0)')
 evr_src    = psana.Source('DetInfo(NoDetector.0:Evr.0)')
 
-update_frequency = 10
+update_frequency = 100
 
 
 # ------ END CONFIG ---------
@@ -156,8 +156,14 @@ for i,evt in enumerate(ds.events()):
         bins2, avg_rad_on  = radial_average(laser_on, geometry, mask)
         bins3, avg_rad_off = radial_average(laser_off, geometry, mask)
 
+        # normalize from 0.5 to 3.5 inv ang
+        evt_rad = normalize(bins1, evt_rad)
+        avg_rad_on = normalize(bins2, avg_rad_on)
+        avg_rad_off = normalize(bins2, avg_rad_off)
+
         # --- any data massaging for laser on/off ---
         laser_onoff_diff = avg_rad_on - avg_rad_off
+        laser_onoff_percdiff = laser_onoff_diff / avg_rad_on
 
         # ==============================
         # PUBLISH DATA VIA ZMQ    
@@ -184,6 +190,13 @@ for i,evt in enumerate(ds.events()):
         socket.send_pyobj(rad_diff_plot)
 
 
+        rad_diffperc_plot = IqPlotData(n_laser_off_shots + n_laser_on_shots,
+                                "I(q) Laser On/Off Difference (%)",
+                                 bins3, laser_onoff_percdiff)
+        socket.send("radperc", zmq.SNDMORE)
+        socket.send_pyobj(rad_diffperc_plot)
+
+
         delta_t = time.time() - t0
         t0 = time.time()
 
@@ -194,4 +207,11 @@ for i,evt in enumerate(ds.events()):
         
     print "Run: %d | Shot %d | %s" % (args.run, shot_index, shot_result)
     shot_index += 1
+
+
+print '\nSaving final results...'
+
+np.save('/reg/neh/home2/tjlane/analysis/xppb0114/averages/r%d_laser_on_avg.npy' % args.run, avg_rad_on)
+np.save('/reg/neh/home2/tjlane/analysis/xppb0114/averages/r%d_laser_off_avg.npy' % args.run, avg_rad_off)
+
 

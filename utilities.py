@@ -45,7 +45,7 @@ def pumpprobe_status(evr_data):
     #               163 : (0, 0)} 
     #               
     
-    xfel_status, uv_status = (1,1) # default if no EVR code matches
+    xfel_status, uv_status = (0,0) # default if no EVR code matches
     for fifoEvent in evr_data.fifoEvents():
         if fifoEvent.eventCode() in evr_legend.keys():
             xfel_status, uv_status = evr_legend[fifoEvent.eventCode()]
@@ -104,4 +104,15 @@ def radial_average(image, q_values, mask, n_bins=100):
     bin_centers = np.arange(bin_values.shape[0]) / bin_factor
     
     return bin_centers, bin_values
+
+
+def normalize(q_values, intensities, q_min=0.5, q_max=3.5):
+    assert q_values.shape == intensities.shape
+    inds = (q_values > q_min) * (q_values < q_max)
+    factor = float(np.sum(intensities[inds]))
+    return intensities / factor
+
+
+
+
 

@@ -82,8 +82,12 @@ class XYPlot(Plot):
     def update(self, data):
         if data is not None:
             self.ax.set_title(data.ts, loc='right')
-            for i in range(data.ydata.shape[1]):
-                self.plot[i].set_data(data.xdata, data.ydata[:,i])
+            if len(data.ydata.shape) == 2:
+                n_plots = data.ydata.shape[1] 
+                for i in range(n_plots):
+                    self.plot[i].set_data(data.xdata, data.ydata[:,i])
+            else:
+                self.plot[0].set_data(data.xdata, data.ydata)
         return self.plot
 
 
