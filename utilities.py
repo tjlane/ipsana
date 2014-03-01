@@ -1,5 +1,12 @@
 
+import os
+import cPickle
+
 import numpy as np
+from mdtraj import io
+
+from matplotlib import pyplot as plt
+from mpl_toolkits.mplot3d import Axes3D
 
 from pypad.read import enforce_raw_img_shape
 
@@ -56,7 +63,7 @@ def pumpprobe_status(evr_data):
     
 class RadialAverager(object):
     
-    def __init__(self, q_values, mask, n_bins=100):
+    def __init__(self, q_values, mask, n_bins=101):
         """
         Parameters
         ----------
@@ -74,11 +81,13 @@ class RadialAverager(object):
         
         # figure out the number of bins to use
         if n_bins != None:
-            self._bin_factor = float(self.n_bins) / self.q_values.max()
+            self._bin_factor = float(self.n_bins-1) / self.q_values.max()
         else:
             self._bin_factor = 25.0
         
         self._bin_assignments = np.floor( q_values * self._bin_factor ).astype(np.int32)
+        self._normalization_array = (np.bincount( self._bin_assignments.flatten(), weights=self.mask.flatten() ) \
+                                    + 1e-100).astype(np.float)[:bin_values.shape[0]]
         
         return
     
@@ -110,12 +119,102 @@ class RadialAverager(object):
 
         weights = image.flatten() * self.mask.flatten()
         bin_values = np.bincount(self._bin_assignments.flatten(), weights=weights)
-        bin_values /= (np.bincount( self._bin_assignments.flatten(), weights=self.mask.flatten() ) \
-                                    + 1e-100).astype(np.float)[:bin_values.shape[0]]
+        bin_values /= self._normalization_array
     
         bin_centers = np.arange(bin_values.shape[0]) / self._bin_factor
     
         return bin_centers, bin_values
+
+
+class TTHistogram(object):
+
+    def __init__(self, tau_min, tau_max, n_tau_bins, n_q_bins):
+
+        self._n_q_bins = n_q_bins
+        self._bin_cutoffs = np.linspace(tau_min, tau_max, n_tau_bins)
+        self._histogram = np.zeros(( n_tau_bins, n_q_bins ))
+        self._n_shots = np.zeros(n_tau_bins, dtype=np.int)
+
+        return
+
+    @property
+    def bin_cutoffs(self):
+        return self._bin_cutoffs
+
+    @property
+    def bin_centers(self):
+        return self.bin_cutoffs[1:] - self.bin_width/2.0
+
+    @property
+    def bin_width(self):
+         return self.bin_cutoffs[1] - self.bin_cutoffs[0]
+
+    def add_data(self, data, tau):
+
+         if tau == 0.0:
+             return # bad data
+
+         bin_index = (self.bin_cutoffs >= tau-self.bin_width) * (self.bin_cutoffs < tau)
+         if np.sum(bin_index) < 1:
+             return
+         elif np.sum(bin_index) > 1:
+             print '%f in many bins?' % tau
+             return
+
+         assert len(data) == self._n_q_bins
+         print 'adding -->', tau
+         self._n_shots[bin_index] += 1
+         n = int(self._n_shots[bin_index])
+         self._histogram[bin_index] *= (n-1)/float(n)
+         self._histogram[bin_index] += (1.0/float(n)) * data
+
+         return
+
+
+    def plot(self, q_values, q_min, q_max):
+
+        inds = (q_values > q_min) * (q_values < q_max)
+        qv = q_values[inds]
+
+        x, y = np.meshgrid(qv, self.bin_cutoffs)
+        z = self._histogram[:,inds]
+        z -= z[0,:][None,:]
+
+        fig = plt.figure()
+        ax = fig.add_subplot(111, projection='3d')
+        #ax.plot_wireframe(x, y, z)
+        ax.plot_surface(x, y, z)
+        plt.show()
+
+        return
+
+
+    def _to_serial(self):
+        """ serialize the object to an array """
+        s = np.array( cPickle.dumps(self) )
+        s.shape=(1,) # a bit nasty...
+        return s
+
+
+    @classmethod
+    def _from_serial(self, serialized):
+        """ recover a Detector object from a serialized array """
+        if serialized.shape == (1,):
+            serialized = serialized[0]
+        d = cPickle.loads( str(serialized) )
+        return d
+
+
+    def save(self, filename, overwrite=False):
+        io.saveh(filename, detector=self._to_serial())
+        print('Wrote %s to disk.' % filename)
+        return
+
+
+    @classmethod
+    def load(cls, filename):
+        hdf = io.loadh(filename)
+        return cls._from_serial(hdf['detector'])
 
 
 def normalize(q_values, intensities, q_min=0.5, q_max=3.5):
@@ -124,7 +223,11 @@ def normalize(q_values, intensities, q_min=0.5, q_max=3.5):
     factor = float(np.sum(intensities[inds])) / float(np.sum(inds))
     return intensities / factor
 
-
+def differential_integral(laser_on, laser_off, q_values, q_min=1.0, q_max=2.5):
+    percent_diff = (laser_on - laser_off) / laser_on
+    inds = (q_values > q_min) * (q_values < q_max)
+    di = np.abs(np.sum( precent_diff[inds] ))
+    return di
 
 
 

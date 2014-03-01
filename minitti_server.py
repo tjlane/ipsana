@@ -111,7 +111,8 @@ shot_result = 'no data'
 t0 = time.time()
 s0 = 0 # shot counter
 
-ra = RadialAverager(geometry, mask)
+n_q_bins = 100
+ra = RadialAverager(geometry, mask, n_bins=n_q_bins)
 
 for i,evt in enumerate(ds.events()):
     
@@ -134,7 +135,11 @@ for i,evt in enumerate(ds.events()):
     if corrected_image.sum() < args.threshold:
         print "-- bad shot :: intensity too low"
         continue
-    
+
+    # === extract timetool stamp ===
+
+    tau = epics.value('TTSPEC:FLTPOS_PS')
+
     # === accumulate the results ===
 
     if (xfel_status and uv_status):       # good data, w/ pump
@@ -149,6 +154,9 @@ for i,evt in enumerate(ds.events()):
         
     else:                                 # no scattering data...
         shot_result = 'xfel off'
+
+
+    # === ANALYZE AND BROADCAST ===
 
     if ((n_laser_on_shots + n_laser_off_shots) % update_frequency == 0) \
         and (n_laser_on_shots > 0):
@@ -216,4 +224,7 @@ print '\nSaving final results...'
 np.save('/reg/neh/home2/tjlane/analysis/xppb0114/averages/r%d_laser_on_avg.npy' % args.run, avg_rad_on)
 np.save('/reg/neh/home2/tjlane/analysis/xppb0114/averages/r%d_laser_off_avg.npy' % args.run, avg_rad_off)
 
+q_values_fn = '/reg/neh/home2/tjlane/analysis/xppb0114/averages/q_values.npy'
+if not os.path.exists(q_values_fn):
+    np.save(q_values_fn, bins1)
 
