@@ -128,12 +128,12 @@ class RadialAverager(object):
 
 class TTHistogram(object):
 
-    def __init__(self, tau_min, tau_max, n_tau_bins, n_q_bins):
+    def __init__(self, tau_min, tau_max, n_tau_bins):
 
-        self._n_q_bins = n_q_bins
         self._bin_cutoffs = np.linspace(tau_min, tau_max, n_tau_bins)
-        self._histogram = np.zeros(( n_tau_bins, n_q_bins ))
         self._n_shots = np.zeros(n_tau_bins, dtype=np.int)
+
+        self._binned_intensities = np.zeros((n_tau_bins, 32, 185, 388))
 
         return
 
@@ -161,14 +161,18 @@ class TTHistogram(object):
              print '%f in many bins?' % tau
              return
 
-         assert len(data) == self._n_q_bins
+         assert data.shape == (32, 185, 388)
          print 'adding -->', tau
          self._n_shots[bin_index] += 1
          n = int(self._n_shots[bin_index])
-         self._histogram[bin_index] *= (n-1)/float(n)
-         self._histogram[bin_index] += (1.0/float(n)) * data
+         self._binned_intensities[bin_index] *= (n-1)/float(n)
+         self._binned_intensities[bin_index] += (1.0/float(n)) * data
 
          return
+
+
+    def histogram(self, n_bins):
+        raise NotImplementedError
 
 
     def plot(self, q_values, q_min, q_max):
@@ -177,7 +181,7 @@ class TTHistogram(object):
         qv = q_values[inds]
 
         x, y = np.meshgrid(qv, self.bin_cutoffs)
-        z = self._histogram[:,inds]
+        z = self.histogram()[:,inds]
         z -= z[0,:][None,:]
 
         fig = plt.figure()

@@ -115,18 +115,18 @@ for i,evt in enumerate(ds.events()):
     tau = epics.value('TTSPEC:FLTPOS_PS')
 
     # === accumulate the results ===
-    if (xfel_status and uv_status):       # good data, w/ pump
-        shot_result = 'uv & xfel on'
-        n_laser_on_shots += 1
-        update_average(n_laser_on_shots, laser_on, corrected_image)
-        
-    else:                                 # no scattering data...
-        shot_result = 'uv off'
+    #if (xfel_status and uv_status):       # good data, w/ pump
+    #    shot_result = 'uv & xfel on'
+    #    n_laser_on_shots += 1
+    #    update_average(n_laser_on_shots, laser_on, corrected_image)
+    #    
+    #else:                                 # no scattering data...
+    #    shot_result = 'uv off'
 
     # === ANALYZE ===
-    q_values, evt_rad = ra(corrected_image)
-    n_evt_rad = normalize(q_values, evt_rad)
-    tt_hist.add_data(evt_rad, tau)
+    #q_values, evt_rad = ra(corrected_image)
+    #n_evt_rad = normalize(q_values, evt_rad)
+    tt_hist.add_data(corrected_image, tau)
         
     print "Run: %d | Shot %d | %s" % (args.run, shot_index, shot_result)
     shot_index += 1
