@@ -53,9 +53,13 @@ geometry_filename = '/reg/neh/home2/tjlane/analysis/xppb0114/geometries/v1/v2_q_
 print "Loading geometry from:        %s" % geometry_filename
 geometry = np.load(geometry_filename)
 
-mask_filename = '/reg/neh/home2/tjlane/analysis/xppb0114/geometries/v1/mask.npy'
+mask_filename = '/reg/neh/home2/tjlane/analysis/xppb0114/geometries/v2/mask_v2.npy'
 print "Loading pixel mask from:      %s" % mask_filename
 mask = np.load(mask_filename)
+
+def compute_tau(timetool_ps, motor_value):
+    tau = timetool_ps + ((motor_value - 5496388.12) / -1089.24827044)  # in picoseconds
+    return tau
 
 # Define experiment, run. Shared memory syntax (for SXR): shmem=0_1_SXR.0:stop=no
 if args.run >= 0:
@@ -87,13 +91,14 @@ shot_index = 0
 n_laser_on_shots  = 0
 n_laser_off_shots = 0
 
-shot_result = 'no data'
+shot_result = 'pray for data'
 t0 = time.time()
 s0 = 0 # shot counter
 
 n_q_bins = 101
 ra = RadialAverager(geometry, mask, n_bins=n_q_bins)
-tt_hist = TTHistogram(-0.4, 0.4, 101, n_q_bins)
+tt_hist = TTHistogram(-0.4, 0.4, 21)
+print tt_hist.bin_centers
 
 for i,evt in enumerate(ds.events()):
     
@@ -110,27 +115,20 @@ for i,evt in enumerate(ds.events()):
     if corrected_image.sum() < args.threshold:
         print "-- bad shot :: intensity too low"
         continue
+    if (epics.value('TTSPEC:AMPL') < 0.8) or (epics.value('TTSPEC:AMPL') > 1.2):
+        print '-- bad shot :: timetool amplitude out of bounds'
+        continue
+    if epics.value('TTSPEC:FLTPOS_PS') == 0.0:
+        print '-- bad shot :: no timetool value'
+        continue
 
     # === extract timetool stamp ===
-    tau = epics.value('TTSPEC:FLTPOS_PS')
+    tau = compute_tau(epics.value('TTSPEC:FLTPOS_PS'), epics.value('LAS:FS3:REG:Angle:Shift:rd'))
 
-    # === accumulate the results ===
-    #if (xfel_status and uv_status):       # good data, w/ pump
-    #    shot_result = 'uv & xfel on'
-    #    n_laser_on_shots += 1
-    #    update_average(n_laser_on_shots, laser_on, corrected_image)
-    #    
-    #else:                                 # no scattering data...
-    #    shot_result = 'uv off'
-
-    # === ANALYZE ===
-    #q_values, evt_rad = ra(corrected_image)
-    #n_evt_rad = normalize(q_values, evt_rad)
     tt_hist.add_data(corrected_image, tau)
         
-    print "Run: %d | Shot %d | %s" % (args.run, shot_index, shot_result)
+    print "Run: %d | Shot %d | tau: %.4f | %s" % (args.run, shot_index, tau, shot_result)
     shot_index += 1
 
-print tt_hist._histogram.sum()
 tt_hist.save('/reg/neh/home2/tjlane/analysis/xppb0114/tt_hists/r%d_tthist.h5' % args.run)
 

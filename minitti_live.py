@@ -29,14 +29,6 @@ parser.add_argument(
 )
 
 parser.add_argument(
-    '-r',
-    '--run',
-    type=int,
-    default=-1,
-    help='Which run to analyze, -1 for live stream',
-)
-
-parser.add_argument(
     '-t',
     '--threshold',
     type=int,
@@ -78,35 +70,28 @@ mask_filename = '/reg/neh/home2/tjlane/analysis/xppb0114/geometries/v2/mask_v2.n
 print "Loading pixel mask from:      %s" % mask_filename
 mask = np.load(mask_filename).reshape(32,185,388)
 
-# Define experiment, run. Shared memory syntax (for SXR): shmem=0_1_SXR.0:stop=no
-if args.run >= 0:
-    print "\nReading run #: %d" % args.run
-    ds = psana.DataSource('exp=xppb0114:run=%d' % args.run)
-elif args.run == -1:
-    print "\nLocking on to shared memory..."
-    ds = psana.DataSource('shmem=1_1_psana_XPP.0:stop=no')
-else:
-    raise ValueError('`run` parameter must either be an int corresponding to a '
-                     'run, or the keyword "online"')
 
-cspad_src  = psana.Source('DetInfo(XppGon.0:Cspad.0)')
-evr_src    = psana.Source('DetInfo(NoDetector.0:Evr.0)')
+while True:
 
-update_frequency = 100
+    try:
 
+        ds = psana.DataSource('shmem=1_1_psana_XPP.0:stop=yes')
 
-# ------ END CONFIG ---------
+        cspad_src  = psana.Source('DetInfo(XppGon.0:Cspad.0)')
+        evr_src    = psana.Source('DetInfo(NoDetector.0:Evr.0)')
 
-epics = ds.env().epicsStore()
-calib = ds.env().calibStore()
+        update_frequency = 100
 
-laser_on  = np.zeros((32, 185, 194*2))
-laser_off = np.zeros((32, 185, 194*2))
+        epics = ds.env().epicsStore()
+        calib = ds.env().calibStore()
 
-shot_index = 0
+        laser_on  = np.zeros((32, 185, 194*2))
+        laser_off = np.zeros((32, 185, 194*2))
 
-n_laser_on_shots  = 0
-n_laser_off_shots = 0
+        shot_index = 0
+
+        n_laser_on_shots  = 0
+        n_laser_off_shots = 0
 
 shot_result = 'no data'
 t0 = time.time()
