@@ -97,8 +97,9 @@ s0 = 0 # shot counter
 
 n_q_bins = 101
 ra = RadialAverager(geometry, mask, n_bins=n_q_bins)
-tt_hist = TTHistogram(-1.9, 1.1, 121) # tau_zero is at -400 fs
-print tt_hist.bin_centers
+
+last_calib_cycle = ''
+ci = 0
 
 for i,evt in enumerate(ds.events()):
     
@@ -115,20 +116,55 @@ for i,evt in enumerate(ds.events()):
     if corrected_image.sum() < args.threshold:
         print "-- bad shot :: intensity too low"
         continue
-    if (epics.value('TTSPEC:AMPL') < 0.8) or (epics.value('TTSPEC:AMPL') > 1.2):
-        print '-- bad shot :: timetool amplitude out of bounds'
-        continue
-    if epics.value('TTSPEC:FLTPOS_PS') == 0.0:
-        print '-- bad shot :: no timetool value'
-        continue
+#    if (epics.value('TTSPEC:AMPL') < 0.8) or (epics.value('TTSPEC:AMPL') > 1.2):
+#        print '-- bad shot :: timetool amplitude out of bounds'
+#        continue
+#    if epics.value('TTSPEC:FLTPOS_PS') == 0.0:
+#        print '-- bad shot :: no timetool value'
+#        continue
 
     # === extract timetool stamp ===
+    #tau = compute_tau(epics.value('TTSPEC:FLTPOS_PS'), epics.value('LAS:FS3:REG:Angle:Shift:rd'))
     tau = compute_tau(epics.value('TTSPEC:FLTPOS_PS'), epics.value('LAS:FS3:REG:Angle:Shift:rd'))
 
-    tt_hist.add_data(corrected_image, tau)
+    if epics.value('LAS:FS3:REG:Angle:Shift:rd') == last_calib_cycle:
+
+      if (xfel_status and uv_status):       # good data, w/ pump
+        if (epics.value('TTSPEC:AMPL') < 0.8) or (epics.value('TTSPEC:AMPL') > 1.2) or (epics.value('TTSPEC:FLTPOS_PS') == 0.0):
+          print '-- bad shot :: timetool amplitude out of bounds'
+          continue
+        shot_result = 'uv & xfel on'
+        n_laser_on_shots += 1
+        update_average(n_laser_on_shots, laser_on, corrected_image)
+
+      elif (xfel_status and not uv_status): # good data, no pump
+        shot_result = 'uv off, xfel on'
+        n_laser_off_shots += 1
+        update_average(n_laser_off_shots, laser_off, corrected_image)
+
+      else:                                 # no scattering data...
+        shot_result = 'xfel off'
+
+    else:
+
+      avg_rad_on  = ra(laser_on)
+      avg_rad_off = ra(laser_off)
+      diff = normalize(ra.bin_centers, avg_rad_on) - normalize(ra.bin_centers, avg_rad_off)
+      np.save('calib_cycle_%d_%f_ps.npy' % (ci, tau), diff)
+      last_calib_cycle = epics.value('LAS:FS3:REG:Angle:Shift:rd')
+      print 'new calib cycle', last_calib_cycle
+      ci += 1
+
+      n_laser_on_shots  = 0
+      n_laser_off_shots = 0
+
+      laser_on  = np.zeros((32, 185, 194*2))
+      laser_off = np.zeros((32, 185, 194*2))
+
+
+    #tt_hist.add_data(corrected_image, tau)
         
     print "Run: %d | Shot %d | tau: %.4f | %s" % (args.run, shot_index, tau, shot_result)
     shot_index += 1
 
-tt_hist.save('/reg/neh/home2/tjlane/analysis/xppb0114/tt_hists/r%d_tthist.h5' % args.run)
 

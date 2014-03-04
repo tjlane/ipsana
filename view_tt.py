@@ -13,7 +13,7 @@ import numpy as np
 from utilities import *
 
 
-q_geom = np.load('/reg/neh/home2/tjlane/analysis/xppb0114/geometries/v1/v2_q_geom.npy')
+q_geom = np.load('/reg/neh/home2/tjlane/analysis/xppb0114/geometries/v2/q_geom.npy')
 mask = np.load('/reg/neh/home2/tjlane/analysis/xppb0114/geometries/v2/mask_v2.npy')
 
 print 'Searching: %s' % sys.argv[1]

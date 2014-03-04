@@ -24,7 +24,7 @@ parser.add_argument(
     '--port',
     metavar='PORT',
     type=int,
-    default=5556,
+    default=12301,
     help='the tcp port to use on the server'
 )
 
@@ -62,7 +62,7 @@ psana.setOption('psana.l3t-accept-only',0)
 print "Loading psana config file:    %s" % config_fn
 
 # Aquire the geometry and mask
-geometry_filename = '/reg/neh/home2/tjlane/analysis/xppb0114/geometries/v1/v2_q_geom.npy'
+geometry_filename = '/reg/neh/home2/tjlane/analysis/xppb0114/geometries/v2/q_geom.npy'
 print "Loading geometry from:        %s" % geometry_filename
 geometry = np.load(geometry_filename).reshape(32,185,388)
 
@@ -75,7 +75,7 @@ while True:
 
     try:
 
-        ds = psana.DataSource('shmem=1_1_psana_XPP.0:stop=yes')
+        ds = psana.DataSource('shmem=1_1_psana_XPP.0')
 
         cspad_src  = psana.Source('DetInfo(XppGon.0:Cspad.0)')
         evr_src    = psana.Source('DetInfo(NoDetector.0:Evr.0)')
@@ -210,12 +210,13 @@ while True:
 
                 print '\t--> sending results (%d Hz)' % (shot_rate)
         
-            print "Run: %d | Shot %d | %s" % (args.run, shot_index, shot_result)
+            print "Run: live | Shot %d | %s" % (shot_index, shot_result)
             shot_index += 1
             
-        except Exception as e:
-            print 'Got exception:', e
-            print 'Continuing WITHOUT FEAR!!!'
-            print ''
+    except Exception as e:
+        print 'Got exception:', e
+        print 'Continuing WITHOUT FEAR!!!'
+        print ''
+        time.sleep(1)
 
 

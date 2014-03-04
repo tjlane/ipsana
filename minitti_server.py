@@ -70,13 +70,18 @@ psana.setOption('psana.l3t-accept-only',0)
 print "Loading psana config file:    %s" % config_fn
 
 # Aquire the geometry and mask
-geometry_filename = '/reg/neh/home2/tjlane/analysis/xppb0114/geometries/v1/v2_q_geom.npy'
+geometry_filename = '/reg/neh/home2/tjlane/analysis/xppb0114/geometries/v2/q_geom.npy'
 print "Loading geometry from:        %s" % geometry_filename
 geometry = np.load(geometry_filename).reshape(32,185,388)
 
 mask_filename = '/reg/neh/home2/tjlane/analysis/xppb0114/geometries/v2/mask_v2.npy'
 print "Loading pixel mask from:      %s" % mask_filename
 mask = np.load(mask_filename).reshape(32,185,388)
+
+# get a vacuum background
+f = h5py.File('/reg/neh/home2/tjlane/analysis/xppb0114/averages/r262_laser_avg.h5')
+vacuum = (np.array(f['/laser_on']) + np.array(f['/laser_off'])) / 2.0
+f.close()
 
 # Define experiment, run. Shared memory syntax (for SXR): shmem=0_1_SXR.0:stop=no
 if args.run >= 0:
@@ -169,6 +174,7 @@ for i,evt in enumerate(ds.events()):
         avg_rad_off = ra(laser_off)
 
         # normalize from 0.5 to 3.5 inv ang
+        n_vacuum      = normalize(ra.bin_centers, vacuum)
         n_evt_rad     = normalize(ra.bin_centers, evt_rad)
         n_avg_rad_on  = normalize(ra.bin_centers, avg_rad_on)
         n_avg_rad_off = normalize(ra.bin_centers, avg_rad_off)
@@ -188,7 +194,8 @@ for i,evt in enumerate(ds.events()):
         socket.send_pyobj(rad_evt_plot)
 
 
-        plotdata = np.hstack((avg_rad_on[:,None], avg_rad_off[:,None]))
+        plotdata = np.hstack(( (avg_rad_on- vacuum)[:,None], 
+                               (avg_rad_off-vacuum)[:,None] ))
         rad_avg_plot = IqPlotData(n_laser_off_shots + n_laser_on_shots,
                                 "I(q) Laser On & Off Averages",
                                  ra.bin_centers, plotdata)

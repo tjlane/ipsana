@@ -20,9 +20,13 @@ def update_average(n, A, B):
     updates a numpy matrix A that represents an average over the previous n-1 shots
     by including B into the average, B being the nth shot
     '''
-    A *= (n-1)/float(n)
-    A += (1.0/float(n))*B
-    return
+    if n == 0:
+        A += B
+        return
+    else:
+        A *= (n-1)/float(n)
+        A += (1.0/float(n))*B
+        return
 
     
 def pumpprobe_status(evr_data):
@@ -257,10 +261,17 @@ class TTHistogram(object):
 
 
     def save(self, filename):
-        io.saveh(filename,
-                 bin_cutoffs = self._bin_cutoffs,
-                 n_shots     = self._n_shots,
-                 intensities = self._binned_intensities)
+        #io.saveh(filename,
+        #         bin_cutoffs = self._bin_cutoffs,
+        #         n_shots     = self._n_shots,
+        #         intensities = self._binned_intensities)
+        
+        f = h5py.File(filename)
+        f['/bin_cutoffs'] = self._bin_cutoffs
+        f['/n_shots']     = self._n_shots
+        f['/intensities'] = self._binned_intensities
+        f.close()        
+
         print('Wrote %s to disk.' % filename)
         return
 
