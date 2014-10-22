@@ -11,6 +11,9 @@ Standard data shape is (2, 32, 185, 388), the first "2" is for DS1/DS2.
 
 """
 
+import os
+import h5py
+
 import numpy as np
 
 
@@ -101,7 +104,7 @@ class _TTHistogramBin(object):
     def __init__(bin, num_laseroff_shots=0, num_laseron_shots=0,
                  laseron_avg=np.zeros(2, 32, 185, 388),
                  laseroff_avg=np.zeros(2, 32, 185, 388),
-                 cspad_SminusP=np.zeros(2, 32, 185, 388)):
+                 SminusP=np.zeros(2, 32, 185, 388)):
                  
         # set all values internally
         self.bin = bin
@@ -111,7 +114,7 @@ class _TTHistogramBin(object):
         self.laseron_avg = laseron_avg
         self.laseroff_avg = laseroff_avg
         
-        self.cspad_SminusP = cspad_SminusP
+        self.SminusP = SminusP
         
         return
         
@@ -141,7 +144,7 @@ class _TTHistogramBin(object):
         # polarization
         if polarization not in [-1, 1]:
             raise ValueError('polarization not in [-1, 1]')
-        self.cspad_SminusP += polarization * cspad_intensities
+        self.SminusP += polarization * cspad_intensities
         
         return
     
@@ -165,9 +168,9 @@ class TTHistogram(object):
         self._bin_width = bin_width
         
         for g in [ds1_geometry, ds2_geometry]:
-            if not g.shape == (32*185*388, 3):
-                raise ValueError('`geometry` is not the correct shape!')
-        
+            if not g.shape == (3, 32, 185, 388):
+                raise ValueError('`geometry` is weird shape: %s' % str(g.shape))
+                
         self._ds1_geometry = ds1_geometry
         self._ds2_geometry = ds2_geometry
         
@@ -178,7 +181,7 @@ class TTHistogram(object):
         # spanning 45.0-50.0, who's index_multiplier is 45/5 = 9
         
         self._tt_hist_bins = {}
-
+        
         return
         
         
@@ -214,7 +217,7 @@ class TTHistogram(object):
     @property
     def num_shots_per_bin(self):
         shots_per_bin = []
-        for k in self._index_multipliers_active()
+        for k in self._index_multipliers_active():
             shots_per_bin.append(self._tt_hist_bins[k])
         return np.array(shots_per_bin)
     
@@ -249,8 +252,6 @@ class TTHistogram(object):
                                         laser_status, 
                                         polarization)
         
-            
-        
         return
         
         
@@ -276,23 +277,91 @@ class TTHistogram(object):
         return
 
 
-    def save(self, filename):
-        #io.saveh(filename,
-        #         bin_cutoffs = self._bin_cutoffs,
-        #         n_shots     = self._n_shots,
-        #         intensities = self._binned_intensities)
+    def save(self, filename, overwrite=False):
+
+        if os.path.exists(filename):
+            if overwrite:
+                os.remove(filename)
+            else:
+                raise IOError('File: %s already exists!' % filename)
+                
+        if not filename.endswith('.h5'):
+            filename += '.h5'
+
+        f = h5py.File(filename, 'w')
         
-        f = h5py.File(filename)
-        f['/bin_cutoffs'] = self._bin_cutoffs
-        f['/n_shots']     = self._n_shots
-        f['/intensities'] = self._binned_intensities
-        f.close()        
+        f['/index_multipliers'] = self._index_multipliers_active
+        f['/bin_width'] = self.bin_width
+        
+        f['/geometry/ds1'] = self.ds1_geometry
+        f['/geometry/ds2'] = self.ds2_geometry
+        
+        for k in self._index_multipliers_active:
+        
+            hb = self._tt_hist_bins[k]
+        
+            timetag = '%.2fto%.2ffs' % ( k    * self.bin_width,
+                                        (k+1) * self.bin_width)
+            
+            f['/%s/index_multiplier' % timetag] = k
+            
+            f['/%s/ds1/laseroff_avg' % timetag] = hb.laseroff_avg[0,:,:,:]
+            f['/%s/ds2/laseroff_avg' % timetag] = hb.laseroff_avg[1,:,:,:]
+            
+            f['/%s/ds1/laseron_avg' % timetag]  = hb.laseron_avg[0,:,:,:]
+            f['/%s/ds2/laseron_avg' % timetag]  = hb.laseron_avg[1,:,:,:]
+            
+            f['/%s/ds1/SminusP' % timetag] = hb.SminusP[0,:,:,:]
+            f['/%s/ds2/SminusP' % timetag] = hb.SminusP[1,:,:,:]
+            
+            f['/%s/num_laseron_shots' % timetag]  = hb.num_laseron_shots
+            f['/%s/num_laseroff_shots' % timetag] = hb.num_laseroff_shots
+            
+        f.close()
+        
+        print 'Wrote: %s' % filename
 
         return
 
 
     @classmethod
     def load(cls, filename):
+        
+        f = h5py.File(filename, 'r')
+        
+        bin_width = f['/bin_width']
+        ims_to_go = list(f['/index_multipliers'])
+        
+        klass = cls(bin_width, f['/geometry/ds1'], f['/geometry/ds2'])
+        
+        for k in f.keys():
+            if k.find('fs') > -1:
+                
+                try:
+                    im = f[k + '/index_multiplier']
+                    
+                    hb = _TTHistogramBin(
+                           num_laseroff_shots = f[k + '/num_laseroff_shots'],
+                           num_laseron_shots  = f[k + '/num_laseron_shots'],
+                           laseron_avg  = np.array(( f[k + '/ds1/laseron_avg'],
+                                                     f[k + '/ds1/laseron_avg'] )),
+                           laseroff_avg = np.array(( f[k + '/ds1/laseroff_avg'],
+                                                     f[k + '/ds1/laseroff_avg'] )),
+                           SminusP = np.array((f[k + '/ds1/SminusP'],
+                                               f[k + '/ds2/SminusP']))
+                          )
+                        
+                except KeyError as e:
+                    print e
+                    raise IOError('Could not find required field in file.')
+            
+                ims_to_go.remove(im)
+        
+        
+        if len(ims_to_go) != 0:
+            raise IOError('File not complete, could not find index multipliers:'
+                          ' %s' % str(ims_to_go))
+        
         return klass
         
         
