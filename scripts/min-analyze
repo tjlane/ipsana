@@ -1,0 +1,150 @@
+#!/usr/bin/env python
+
+"""
+TJL Oct 22, 2014
+"""
+
+import numpy as np
+
+from minitti.libminitti import *
+from minitti import shot
+
+import psana
+
+
+# ---------------------------
+# manually set parameters
+n_q_bins          = 101
+update_frequency  = 100
+
+ds1_offset    = 0.0 # mm 
+ds2_offset    = 0.0 # mm
+energy_offset = 0.0 # eV
+# ---------------------------
+
+
+# ---- Parse Arguments
+parser = argparse.ArgumentParser(description='Psana plot server application')
+parser.add_argument(
+    '-r',
+    '--run',
+    type=int,
+    default=-1,
+    help='Which run to analyze, -1 for live stream',
+)
+parser.add_argument(
+    '-p',
+    '--port',
+    metavar='PORT',
+    type=int,
+    default=5556,
+    help='the tcp port to use on the server'
+)
+parser.add_argument(
+    '-c',
+    '--client',
+    action='set_true',
+    help='open a corresponding client that will show plots'
+)
+args = parser.parse_args()
+
+
+# ---- initialize ZMQ
+context = zmq.Context()
+socket = context.socket(zmq.PUB)
+socket.setsockopt(zmq.SNDHWM, 10)
+socket.bind("tcp://*:%d" % args.port)
+print "Broadcasting via ZMQ on port: %d" % args.port
+
+
+# ---- initialize DataSource
+if args.run >= 0:
+    print "\nReading run #: %d" % args.run
+    ds = psana.DataSource('exp=xppb0114:run=%d' % args.run)
+elif args.run == -1:
+    print "\nLocking on to shared memory..."
+    ds = psana.DataSource('shmem=1_1_psana_CXI.0:stop=no')
+else:
+    raise ValueError('`run` parameter must either be an int corresponding to a '
+                     'run, or the keyword "online"')
+
+epics = ds.env().epicsStore()
+calib = ds.env().calibStore()
+
+ds.events().next()
+
+socket.send("run", zmq.SNDMORE)
+socket.send_pyobj(args.run)
+
+
+# ---- obtain a geometry and mask
+
+
+energy = self.epics.value('SIOC:SYS0:ML00:AO627') + energy_offset
+ds1_dist = self.epics.value('CXI:DS1:MMS:06.RBV') + ds1_offset
+ds2_dist = self.epics.value('CXI:DS2:MMS:07.RBV') + ds2_offset
+
+# geometries are (3, 32, 185, 388)
+ds1_geom = 
+ds2_geom = 
+
+# masks are (32, 185, 388)
+ds1_mask = np.load('/reg/d/psdm/cxi/cxif7214/res/masks/v0/ds1.npy')
+ds2_mask = np.load('/reg/d/psdm/cxi/cxif7214/res/masks/v0/ds2.npy')
+
+# ds1_ra = RadialAverager(ds1_geom[0,:,:,:], ds1_mask, n_bins=n_q_bins)
+# ds2_ra = RadialAverager(ds2_geom[0,:,:,:], ds2_mask, n_bins=n_q_bins)
+
+socket.send("ds1_geometry", zmq.SNDMORE)
+socket.send_pyobj(ds1_geom)
+socket.send("ds2_geometry", zmq.SNDMORE)
+socket.send_pyobj(ds2_geom)
+
+socket.send("ds1_mask", zmq.SNDMORE)
+socket.send_pyobj(ds1_mask)
+socket.send("ds2_mask", zmq.SNDMORE)
+socket.send_pyobj(ds2_mask)
+
+# ---- loop over events
+
+i = 0
+agg = EventAggregator()
+tt_hist = TTHistogram(ds1_geom, ds2_geom, bin_width=5.0)
+
+for psevt in enumerate(ds.events()):
+    
+    evt = Event(psevt, ds1_offset, ds2_offset, energy_offset)
+    
+    cspad_intensities = np.array((evt.ds1_intensities,
+                                  evt.ds2_intensities))
+    
+    agg.add_shot(cspad_intensities,
+                 evt.pump_laser_status,
+                 evt.polarization_status)
+                 
+    tt_hist.add_shot(evt.pumpprobe_delay_fs,
+                     evt.pump_laser_status,
+                     evt.polarization_status,
+                     cspad_intensities)
+    
+    if i % update_frequency == 0:
+        socket.send("aggregator", zmq.SNDMORE)
+        socket.send_pyobj(agg)
+        
+    print "Run: %d | Shot %d | %s" % (args.run, shot_index, shot_result)
+    i += 1
+    
+    
+print 'Done processing run.'
+
+fn = '/reg/d/psdm/cxi/cxif7214/scratch/timehists/run%d.h5'
+if os.path.exists(fn):
+    os.remove(fn)
+    print 'Removing old file: %s' % fn
+    
+tt_hist.save(fn)
+print 'Wrote: %s' % fn
+    
+    
+    
+

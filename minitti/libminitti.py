@@ -95,19 +95,18 @@ class RadialAverager(object):
         
         
 
-class _TTHistogramBin(object):
+class EventAggregator(object):
     """
     This is a container class used by TTHistogram
     """
     
     
-    def __init__(bin, num_laseroff_shots=0, num_laseron_shots=0,
+    def __init__(num_laseroff_shots=0, num_laseron_shots=0,
                  laseron_avg=np.zeros(2, 32, 185, 388),
                  laseroff_avg=np.zeros(2, 32, 185, 388),
                  SminusP=np.zeros(2, 32, 185, 388)):
                  
         # set all values internally
-        self.bin = bin
         self.num_laseroff_shots = num_laseroff_shots
         self.num_laseron_shots = num_laseron_shots
         
@@ -124,7 +123,7 @@ class _TTHistogramBin(object):
         return self.num_laseroff_shots + self.num_laseron_shots
     
         
-    def add_shot(cspad_intensities, laser_status, polarization):
+    def add_shot(self, cspad_intensities, laser_status, polarization):
         
         # laser status
         if laser_status == 0:
@@ -231,13 +230,12 @@ class TTHistogram(object):
         if index_multiplier in self._index_multipliers_active:
             raise RuntimeError('trying to add existing bin')
             
-        self._tt_hist_bins[index_multiplier] = TTHistogramBin(index_multiplier, 
-                                                              **kwargs)
+        self._tt_hist_bins[index_multiplier] = EventAggregator(**kwargs)
         
         return
     
 
-    def add_image(self, tau, laser_status, polarization, cspad_intensities):
+    def add_shot(self, tau, laser_status, polarization, cspad_intensities):
         """
         Add a tagged CSPAD image
         """
@@ -266,14 +264,7 @@ class TTHistogram(object):
     
 
     def combine(self, other):
-        if not isinstance(other, TTHistogram):
-            raise TypeError('Can only combine with other TTHistogram objects')
-        if not np.all(self._bin_cutoffs == other._bin_cutoffs):
-            raise ValueError('bin cutoffs for both TT Histograms must match to'
-                             ' combine them!')
-
-        self._n_shots += other._n_shots
-        self._binned_intensities += other._binned_intensities
+        raise NotImplementedError()
         return
 
 
@@ -340,7 +331,7 @@ class TTHistogram(object):
                 try:
                     im = f[k + '/index_multiplier']
                     
-                    hb = _TTHistogramBin(
+                    hb = EventAggregator(
                            num_laseroff_shots = f[k + '/num_laseroff_shots'],
                            num_laseron_shots  = f[k + '/num_laseron_shots'],
                            laseron_avg  = np.array(( f[k + '/ds1/laseron_avg'],
