@@ -1,0 +1,45 @@
+#!/usr/bin/env python
+
+import os
+import re
+import time
+import subprocess
+from glob import glob
+
+hutch = os.environ['EXPT'][:3]
+expt  = os.environ['EXPT']
+
+XTC_DIR      = '/reg/d/psdm/%s/%s/xtc' % (hutch, expt)
+BATCH_SCRIPT = 'batchproc'
+HDF5_DIR     = '/reg/d/psdm/%s/%s/scratch/hdf5' % (hutch, expt)
+
+while True:
+
+    # check to make sure we don't have >6 jobs submitted...
+    nj = subprocess.check_call(['bjobs 2>/dev/null | wc -l'], shell=True)
+    if nj > 7:
+         time.sleep(60)
+         continue
+
+    new_runs = []
+    xtcs = glob(os.path.join(XTC_DIR, '*.xtc'))
+
+    for xtc in xtcs:
+        run = int( re.search('-r(\d+)-', xtc).group(1) )
+        if not os.path.exists( os.path.join(HDF5_DIR, 'run%d.h5' % run) ):
+            if run not in new_runs:
+                new_runs.append(run)
+
+    if len(new_runs) > 0:
+        print 'Processing new runs: %s' % (' '.join([str(r) for r in new_runs]))
+        try:
+            r = os.system('%s -r %s' % (BATCH_SCRIPT, ' '.join([str(r) for r in new_runs])))
+        except Exception as e:
+            print e
+
+    time.sleep(60)
+
+
+
+
+

@@ -1,0 +1,105 @@
+#!/usr/bin/env python
+
+"""
+Submit a number of analysis jobs to the psanafeh queue.
+
+Beamtime quality code -- not the best, but hey, it works, what 
+more do you want?
+"""
+
+import os
+import subprocess
+import argparse
+
+import numpy as np
+
+hutch = # WORK
+expt  = # WORK
+
+SCRIPT_PATH = # WORK #'/reg/d/psdm/%s/%s/res/bin/analyze_run.py' % (hutch, expt)
+BATCH_SIZE  = 8
+
+parser = argparse.ArgumentParser(description='Batch analyze some runs from the cxii0114 experiment!')
+
+parser.add_argument(
+    '-r', '--runs',
+    type=int, nargs='+',
+    help='Provide a list of runs to process',
+)
+
+parser.add_argument(
+     '-f', '--file',
+     type=str,
+     help='Provide a list of runs to process, in a flat text file',
+)
+
+args = parser.parse_args()
+
+
+def submit_job(bsub_command_str, logfile='tmp.log', queue='psfehq'):
+
+    if os.path.exists(logfile):
+        os.remove(logfile)
+    p = subprocess.check_call(['bsub', '-o %s' % logfile, '-q %s' % queue, bsub_command_str],
+                              stdout=subprocess.PIPE) 
+    if not p == 0:
+        print "bsub returned non-zero exit code: there was an error with your job submission!"
+    return
+
+
+# get a list of ints for the runs we want to process
+if args.runs:
+    runs = args.runs
+elif args.file:
+    runs = list( np.genfromtxt(args.file).flatten() )
+else:
+    raise IOError('Please provide either the `runs` (-r) or `file` (-f)'
+                  ' command line arguments!')
+
+print 'Processing %d runs:' % len(runs)
+print runs
+
+# ---- now, for each batch of jobs, write a script and submit it to the queue
+
+# make a place to store job logs
+home = os.getenv("HOME")
+log_dir = os.path.join(home, 'batch_job_logs')
+if not os.path.exists(log_dir):
+    os.mkdir(log_dir)
+print 'Storing logs in: %s' % log_dir
+
+# build a string to submit to bsub
+
+print '-'*40
+
+bsub_command_str = ''
+runs_in_job = []
+job_index = 1
+
+for i,run in enumerate(runs):
+
+    runs_in_job.append(run)
+    run_logfile = os.path.join(log_dir, 'job%d_run%d.log' % (job_index, i+1))
+    bsub_command_str += '%s %s -t -r %d >& %s &  ' % ('python', # python bin
+                                                      SCRIPT_PATH,
+                                                      run, run_logfile)
+
+    if (((i+1) % BATCH_SIZE) == 0) or ((i+1) == len(runs)):
+
+        # bsub_command_str = bsub_command_str[:-2]
+        bsub_command_str += ' wait'
+
+        logfile = os.path.join(log_dir, 'job%d.log' % job_index)
+        submit_job(bsub_command_str, logfile=logfile, queue='psfehq')
+        print 'Submitted job %d, runs: %s' % (job_index, runs_in_job)
+        
+        runs_in_job = []
+        bsub_command_str = ''
+        job_index += 1
+
+
+print '-'*40
+
+print 'All jobs submitted, run `bjobs` to monitor their progress!'
+
+
