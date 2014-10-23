@@ -150,8 +150,8 @@ for psevt in ds.events():
         ds2_off = ds2_ra(agg.laseroff_avg[1,:,:,:])
         off_avg = np.concatenate([ds2_off, ds1_off])
 
-        diff = on - off
-        percent = diff / off
+        diff = on_avg - off_avg
+        percent = diff / off_avg
 
         transmission = {
                         'title'         : 'RUN %d | %d SHOTS PROCESSED' % (args.run, i),
