@@ -4,72 +4,86 @@ import zmq
 import sys
 import time
 import argparse
-import matplotlib.pyplot as plt
 
-class Plot(object):
-    def __init__(self, init, framegen, info, rate):
-        self.figure, self.ax = plt.subplots()
-        self.figure.canvas.set_window_title(init.title)
-        self.ax.set_title(init.ts, loc='right')
+import matplotlib.pyplot as plt
+import matplotlib.animation as animation
+
+import numpy as np
+
+class PPPlot(object):
+    def __init__(self, init_data, framegen, info, rate):
+
+        self.figure = plt.figure(figsize=(12,6))
+        #self.figure.canvas.set_window_title(init_data['title'])
+        #self.ax.set_title(init.ts, loc='right')
+
+        self.axL = plt.subplot(121)
+        self.axR = plt.subplot(122)
+
         self.framegen = framegen
         self.rate_ms = rate * 1000
         self.info = info
 
+        self.update(init_data)
+
+        return
+
+
     def update(self, data):
-        pass
+        if data == None: return
+       
+        self.axL.cla()
+        self.axR.cla()
+
+        if 'title' in data.keys():
+            self.figure.suptitle(data['title'])
+
+        if 'laser_on_avg' in data.keys():
+            self.axL.plot(data['q_values'], data['laser_on_avg'], color='pink', lw=2, label='laser_on_avg')
+        if 'laser_off_avg' in data.keys():
+            self.axL.plot(data['q_values'], data['laser_off_avg'], color='green', lw=2, label='laser_off_avg')
+        self.axL.legend()
+
+        if 'diff' in data.keys():
+            self.axR.plot(data['q_values'], data['diff'], color='purple', lw=2, label='onoff_diff')
+        if 'percent_diff' in data.keys():
+            self.axR.plot(data['q_values'], data['percent_diff'], color='teal', lw=2, label='onoff_percent_diff')
+        self.axR.legend()
+
+        self.axL.set_xlabel(r'q $\AA^{-1}$')
+        self.axR.set_xlabel(r'q $\AA^{-1}$')
+
+        self.axL.set_ylabel('Intensity (ADU)')
+        self.axR.set_ylabel('Change')
+
+
+        return [self.axL, self.axR]
+
 
     def animate(self):
-        return animation.FuncAnimation(self.figure, self.update, 
-									   self.ani_func, interval=self.rate_ms)
+        return animation.FuncAnimation(self.figure, self.update,
+                                       self.ani_func, interval=self.rate_ms)
 
     def ani_func(self):
         yield self.framegen.next()
 
 
-class Image(Plot):
-    def __init__(self, init_im, framegen, info, rate=1):
-        super(Image, self).__init__(init_im, framegen, info, rate)
-        self.im = self.ax.imshow(init_im.image)
-        self.im.set_clim(self.info.zmin, self.info.zmax)
-        self.figure.colorbar(self.im)
-        if self.info.aspect is not None:
-            self.ax.set_aspect(self.info.aspect)
-
-    def update(self, data):
-        """
-        Updates the data in the image - none means their was no update for this interval
-        """
-        if data is not None:
-            self.ax.set_title(data.ts, loc='right')
-            self.im.set_data(data.image)
-        return self.im
-
-TypeMap = {
-    HistData: Hist,
-    ImageData: Image,
-    XYPlotData: XYPlot,
-    IqPlotData: IvsQPlot
-}
 
 
 def parse_cmdline():
     parser = argparse.ArgumentParser(
         description='Psana plot client application'
     )
-
-    parser.add_argument(
-        'topic',
-        help='The topic from the server to suscribe too'
-    )
-
+#    parser.add_argument(
+#        'topic',
+#        help='The topic from the server to suscribe too'
+#    )
     parser.add_argument(
         '-s',
         '--server',
         metavar='SERVER',
-        default='localhost',
         help='the host name of the server'
     )
-
     parser.add_argument(
         '-p',
         '--port',
@@ -78,64 +92,6 @@ def parse_cmdline():
         default=5556,
         help='the tcp port to use on the server'
     )
-
-    parser.add_argument(
-        '-r',
-        '--rate',
-        metavar='RATE',
-        type=float,
-        default=5.0,
-        help='update rate of the histogram in Hz'
-    )
-
-    parser.add_argument(
-        '-b',
-        '--buffer',
-        metavar='BUFFER',
-        type=int,
-        default=10,
-        help='the size in messages of recieve buffer'
-    )
-
-    parser.add_argument(
-        '-x',
-        '--x-range',
-        metavar='X_RANGE',
-        type=int,
-        nargs=2,
-        default=None,
-        help='the fixed x range for any plots'
-    )
-
-    parser.add_argument(
-        '-y',
-        '--y-range',
-        metavar='Y_RANGE',
-        type=int,
-        nargs=2,
-        default=None,
-        help='the fixed y range for any plots'
-    )
-
-    parser.add_argument(
-        '-z',
-        '--z-range',
-        metavar='Z_RANGE',
-        type=int,
-        nargs=2,
-        default=None,
-        help='the fixed z range for any plots'
-    )
-
-    parser.add_argument(
-        '-a',
-        '--aspect',
-        metavar='aspect',
-        type=float,
-        default=None,
-        help='the aspect ratio for the plot'
-    )
-
     return parser.parse_args()
 
 
@@ -156,25 +112,24 @@ def get_socket_gen(socket):
 
 
 def main():
+
+    topic = 'data'
+
     try:
         args = parse_cmdline()
 
         context = zmq.Context()
         socket = context.socket(zmq.SUB)
-        socket.setsockopt(zmq.SUBSCRIBE, args.topic)
-        socket.setsockopt(zmq.RCVHWM, args.buffer)
+        socket.setsockopt(zmq.SUBSCRIBE, topic)
+        #socket.setsockopt(zmq.RCVHWM, args.buffer)
         socket.connect("tcp://%s:%d" % (args.server, args.port))
-        print "Listening for topic %s from %s on port %d" % (args.topic, args.server, args.port)
-
-        # create the plot info object from cmd args
-        info = PlotInfo(args.x_range, args.y_range, args.z_range, args.aspect)
+        print "Listening for topic %s from %s on port %d" % (topic, args.server, args.port)
 
         # grab an initial datagram from the server
         init_data = socket_recv(socket)
-        data_type = TypeMap.get(type(init_data))
 
-        if data_type is not None:
-            plot = data_type(init_data, get_socket_gen(socket), info, rate=1.0/args.rate)
+        if init_data is not None:
+            plot = PPPlot(init_data, get_socket_gen(socket), 'info', rate=10.0)
             plot_ani = plot.animate()
             try:
                 plt.show()
@@ -190,3 +145,5 @@ def main():
 
 if __name__ == '__main__':
     main()
+
+

@@ -30,24 +30,42 @@ class Event(object):
         self.ds2_offset = ds2_offset
         self.energy_offset = energy_offset
         
+        self._get_EVR_codes()
+
         return
         
     def _get_EVR_codes(self):
-        # evt.get(psana.EvrData.DataV3, evr_src)
-        # self.evr_codes = 
+        fifos = self.psana_event.get(psana.EvrData.DataV3, self.evr_src).fifoEvents()
+        self.evr_codes = [e.eventCode() for e in fifos]
         return
         
     @property
     def pumpprobe_delay_fs(self):
-        return
+        return 0.0 
         
     @property
     def pump_laser_status(self):
-        return
+        if (183 in self.evr_codes) and not (188 in self.evr_codes):
+            status = 1
+        elif not (183 in self.evr_codes) and (188 in self.evr_codes):
+            status = 0
+        else:
+            #status = 'unknown'
+            status = 0
+        return status
         
     @property
     def xfel_status(self):
-        return
+
+        if (187 in self.evr_codes) and not (189 in self.evr_codes):
+            status = 1
+        elif not (187 in self.evr_codes) and (189 in self.evr_codes):
+            status = 0
+        else:
+            #status = 'unknown'
+            status = 0 
+
+        return status
         
     @property
     def pulse_energy_eV(self):
@@ -66,25 +84,28 @@ class Event(object):
         
     @property
     def polarization_status(self):
-        return
+        return 0
         
     @property
-    def ds1_instensities(self, corrected=True):
+    def ds1_intensities(self, corrected=True):
         if corrected:
             image = self.psana_event.get(psana.ndarray_float32_3, self.ds1_src, 
                                         'calibrated_ndarr')
         else:
             cspad = self.psana_event.get(psana.CsPad.DataV2, self.ds1_src)
             image = np.vstack([ cspad.quads(i).data() for i in range(4) ])
+        if image == None: print 'warning: ds1 is NONE'
         return image
     
     @property
-    def ds2_instensities(self, corrected=True):
+    def ds2_intensities(self, corrected=True):
         if corrected:
             image = self.psana_event.get(psana.ndarray_float32_3, self.ds2_src, 
                                          'calibrated_ndarr')
         else:
             cspad = self.psana_event.get(psana.CsPad.DataV2, self.ds2_src)
             image = np.vstack([ cspad.quads(i).data() for i in range(4) ])
+        if image == None: print 'warning: ds2 is NONE'
         return image
+
 

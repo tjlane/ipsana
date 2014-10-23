@@ -15,6 +15,7 @@ import os
 import h5py
 
 import numpy as np
+import zmq
 
 
 class RadialAverager(object):
@@ -31,23 +32,18 @@ class RadialAverager(object):
             The number of bins to employ. If `None` guesses a good value.
         """
 
-        self.q_values = enforce_raw_img_shape(q_values)
-        self.mask = enforce_raw_img_shape(mask).astype(np.int)
+        self.q_values = q_values
+        self.mask = mask
         self.n_bins = n_bins
 
-        # figure out the number of bins to use
-        if n_bins != None:
-            self.n_bins = n_bins
-            self._bin_factor = float(self.n_bins-1) / self.q_values.max()
-        else:
-            self._bin_factor = 25.0
-            self.n_bins = (self.q_values.max() * self._bin_factor) + 1
+        self.q_range = self.q_values.max() - self.q_values.min()
+        self.bin_width = self.q_range / (float(n_bins) - 1)
 
-        self._bin_assignments = np.floor( q_values * self._bin_factor ).astype(np.int32)
+        self._bin_assignments = np.floor( (self.q_values - self.q_values.min()) / self.bin_width ).astype(np.int32)
         self._normalization_array = (np.bincount( self._bin_assignments.flatten(), weights=self.mask.flatten() ) \
                                     + 1e-100).astype(np.float)
 
-        assert self.n_bins == self._bin_assignments.max() + 1
+        assert self.n_bins == self._bin_assignments.max() + 1, 'incorrect bin assignments'
         self._normalization_array = self._normalization_array[:self.n_bins]
 
         return
@@ -72,8 +68,6 @@ class RadialAverager(object):
             The average intensity in the bin.
         """
 
-        image = enforce_raw_img_shape(image)
-
         if not (image.shape == self.q_values.shape):
             raise ValueError('`image` and `q_values` must have the same shape')
         if not (image.shape == self.mask.shape):
@@ -81,7 +75,6 @@ class RadialAverager(object):
 
         weights = image.flatten() * self.mask.flatten()
         bin_values = np.bincount(self._bin_assignments.flatten(), weights=weights)
-        bin_values /= self._normalization_array
         bin_values /= self._normalization_array
 
         assert bin_values.shape[0] == self.n_bins
@@ -91,7 +84,7 @@ class RadialAverager(object):
 
     @property
     def bin_centers(self):
-        return np.arange(self.n_bins) / self._bin_factor
+        return (np.arange(self.n_bins) + 0.5) * self.bin_width + self.q_values.min()
         
         
 
@@ -101,10 +94,10 @@ class EventAggregator(object):
     """
     
     
-    def __init__(num_laseroff_shots=0, num_laseron_shots=0,
-                 laseron_avg=np.zeros(2, 32, 185, 388),
-                 laseroff_avg=np.zeros(2, 32, 185, 388),
-                 SminusP=np.zeros(2, 32, 185, 388)):
+    def __init__(self, num_laseroff_shots=0, num_laseron_shots=0,
+                 laseron_avg=np.zeros((2, 32, 185, 388)),
+                 laseroff_avg=np.zeros((2, 32, 185, 388)),
+                 SminusP=np.zeros((2, 32, 185, 388)) ):
                  
         # set all values internally
         self.num_laseroff_shots = num_laseroff_shots
@@ -124,7 +117,7 @@ class EventAggregator(object):
     
         
     def add_shot(self, cspad_intensities, laser_status, polarization):
-        
+ 
         # laser status
         if laser_status == 0:
             self.num_laseroff_shots += 1
@@ -137,13 +130,13 @@ class EventAggregator(object):
                            cspad_intensities)
                            
         else:
-            raise ValueError('laser_status invalid value: %d' % laser_status)
+            raise ValueError('laser_status invalid value: %s' % str(laser_status))
             
             
         # polarization
-        if polarization not in [-1, 1]:
-            raise ValueError('polarization not in [-1, 1]')
-        self.SminusP += polarization * cspad_intensities
+        #if polarization not in [-1, 1]:
+        #    raise ValueError('polarization not in [-1, 1]')
+        #self.SminusP += polarization * cspad_intensities
         
         return
     
@@ -221,8 +214,8 @@ class TTHistogram(object):
         return np.array(shots_per_bin)
     
         
-    def _determine_index_multipier(tau):
-        return int( floor(tau / self._bin_width) )
+    def _determine_index_multipier(self, tau):
+        return int( np.floor(tau / self._bin_width) )
     
 
     def _initialize_new_hist_bin(self, index_multiplier, **kwargs):
@@ -253,7 +246,7 @@ class TTHistogram(object):
         return
         
         
-    def coarse_grain(new_bin_width):
+    def coarse_grain(self, new_bin_width):
         
         if new_bin_width <= self.bin_width:
             raise ValueError('new bin width is smaller or equal to old')
@@ -320,20 +313,22 @@ class TTHistogram(object):
         
         f = h5py.File(filename, 'r')
         
-        bin_width = f['/bin_width']
-        ims_to_go = list(f['/index_multipliers'])
+        bin_width = float(f['/bin_width'].value)
+        ims_to_go = list( np.array(f['/index_multipliers']) )
         
-        klass = cls(bin_width, f['/geometry/ds1'], f['/geometry/ds2'])
+        klass = cls(np.array(f['/geometry/ds1']),
+                    np.array(f['/geometry/ds2']),
+                    bin_width=bin_width)
         
         for k in f.keys():
             if k.find('fs') > -1:
                 
                 try:
-                    im = f[k + '/index_multiplier']
+                    im = int( f[k + '/index_multiplier'].value )
                     
                     hb = EventAggregator(
-                           num_laseroff_shots = f[k + '/num_laseroff_shots'],
-                           num_laseron_shots  = f[k + '/num_laseron_shots'],
+                           num_laseroff_shots = int(f[k + '/num_laseroff_shots'].value),
+                           num_laseron_shots  = int(f[k + '/num_laseron_shots'].value),
                            laseron_avg  = np.array(( f[k + '/ds1/laseron_avg'],
                                                      f[k + '/ds1/laseron_avg'] )),
                            laseroff_avg = np.array(( f[k + '/ds1/laseroff_avg'],
@@ -392,4 +387,38 @@ def differential_integral(laser_on, laser_off, q_values, q_min=1.0, q_max=2.5):
     inds = (q_values > q_min) * (q_values < q_max)
     di = np.abs(np.sum( precent_diff[inds] ))
     return di
+
+
+def thor_to_psana(thor_fmt_intensities):
+
+    if thor_fmt_intensities.shape == (4, 16, 185, 194):
+        ii = thor_fmt_intensities
+    elif thor_fmt_intensities.shape == (2296960,):
+        ii = thor_fmt_intensities.reshape((4, 16, 185, 194))
+    else:
+        raise ValueError('did not understand intensity shape: '
+                         '%s' % str(thor_fmt_intensities.shape))
+
+    ix = np.zeros((32, 185, 388), dtype=thor_fmt_intensities.dtype)
+    for i in range(4):
+        for j in range(8):
+            a = i * 8 + j
+            ix[a,:,:] = np.hstack(( ii[i,j*2,:,:], ii[i,j*2+1,:,:] ))
+
+    return ix
+   
+
+def recpolar_convert(thor_recpolar):
+    if thor_recpolar.shape != (2296960, 3):
+        raise ValueError()
+
+    new = np.zeros((3, 32, 185, 388), dtype=thor_recpolar.dtype)
+    for i in range(3):
+        new[i,:,:,:] = thor_to_psana(thor_recpolar[:,i])
     
+    return new
+
+
+
+
+

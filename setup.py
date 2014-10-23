@@ -1,7 +1,7 @@
 #coding: utf8
 
 """
-Setup script for pypad.
+Setup script for minitti.
 """
 
 from glob import glob
