@@ -1,0 +1,192 @@
+#!/usr/bin/env python
+
+"""
+TJL Oct 22, 2014
+"""
+
+import argparse
+import numpy as np
+
+from minitti.libminitti import *
+from minitti.shot import Event
+
+from pypad import psana as psutil
+from pypad import cspad
+
+import psana
+from trapdoor import core
+
+
+# ---------------------------
+# manually set parameters
+n_q_bins          = 101
+update_frequency  = 100
+
+ds1_offset    = 500.0 # mm 
+ds2_offset    = 2800.0 # mm
+energy_offset = 0.0 # eV
+
+psana.setConfigFile('/reg/d/psdm/cxi/cxif7214/res/cfg/cxif7214.cfg')
+psana.setOption('psana.l3t-accept-only',0)
+# ---------------------------
+
+
+class MinittiAnalyzer(object):
+    
+    def __init__(self):
+        
+        self.args = self.parse_args()
+        
+        self.agg = EventAggregator()
+        self.tt_hist = TTHistogram(ds1_geom, ds2_geom, bin_width=5.0)
+        
+        ds = psana.DataSource(self.data_source())
+        
+        epics = ds.env().epicsStore()
+        calib = ds.env().calibStore()
+        ds.events().next()
+        
+        self.energy = epics.value('SIOC:SYS0:ML00:AO627') + energy_offset
+        self.ds1_dist = epics.value('CXI:DS1:MMS:06.RBV') + ds1_offset
+        self.ds2_dist = epics.value('CXI:DS2:MMS:07.RBV') + ds2_offset
+        
+        # geometries are (3, 32, 185, 388)
+        ds1_cspad = cspad.CSPad.load('/reg/d/psdm/cxi/cxif7214/res/geometries/v0/default_5mm_dilation.cspad')
+        ds2_cspad = cspad.CSPad.load('/reg/d/psdm/cxi/cxif7214/res/geometries/v0/default_5mm_dilation.cspad')
+
+        ds1_geom = recpolar_convert( ds1_cspad.to_thor(self.energy, self.ds1_dist).recpolar )
+        ds2_geom = recpolar_convert( ds1_cspad.to_thor(self.energy, self.ds2_dist).recpolar )
+
+        # masks are (32, 185, 388)
+        ds1_mask = np.load('/reg/d/psdm/cxi/cxif7214/res/masks/v0/ds1.npy')
+        ds2_mask = np.load('/reg/d/psdm/cxi/cxif7214/res/masks/v0/ds2.npy')
+        
+        self.ds1_ra = RadialAverager(ds1_geom[0,:,:,:], ds1_mask, n_bins=n_q_bins)
+        self.ds2_ra = RadialAverager(ds2_geom[0,:,:,:], ds2_mask, n_bins=n_q_bins)
+        
+        return
+    
+        
+    def parse_args(self):
+        parser = argparse.ArgumentParser(description='Psana plot server application')
+        parser.add_argument(
+            '-r',
+            '--run',
+            type=int,
+            default=-1,
+            help='Which run to analyze, -1 for live stream',
+        )
+        parser.add_argument(
+            '-p',
+            '--port',
+            metavar='PORT',
+            type=int,
+            default=5556,
+            help='the tcp port to use on the server'
+        )
+        parser.add_argument(
+            '-c',
+            '--client',
+            action='store_true',
+            help='open a corresponding client that will show plots'
+        )
+        return parser.parse_args()
+    
+        
+    def init_zmq(self):
+        context = zmq.Context()
+        socket = context.socket(zmq.PUB)
+        socket.setsockopt(zmq.SNDHWM, 10)
+        socket.bind("tcp://*:%d" % self.args.port)
+        print "Broadcasting via ZMQ on port: %d" % self.args.port
+        self.socket = socket
+        return
+    
+        
+    def data_source(self):
+        s = 'exp=cxif7214:run=%d' % self.args.run
+        return s
+    
+        
+    def map(self, event):
+        return Event(event, self.epics, 
+                     self.ds1_offset, self.ds2_offset,
+                     self.energy_offset)
+    
+        
+    def reduce(self, evt):
+        
+        cspad_intensities = np.array((evt.ds1_intensities,
+                                      evt.ds2_intensities))
+        
+        self.agg.add_shot(cspad_intensities,
+                          evt.pump_laser_status,
+                          evt.polarization_status)
+                 
+        self.tt_hist.add_shot(evt.pumpprobe_delay_fs,
+                              evt.pump_laser_status,
+                              evt.polarization_status,
+                              cspad_intensities)
+        
+        return
+    
+        
+    def action(self, placeholder=None):
+        
+        q = np.concatenate([self.ds2_ra.bin_centers,
+                            self.ds1_ra.bin_centers])
+
+        ds1_on = self.ds1_ra(self.agg.laseron_avg[0,:,:,:])
+        ds2_on = self.ds2_ra(self.agg.laseron_avg[1,:,:,:])
+        on_avg = np.concatenate([ds2_on, ds1_on])
+
+        ds1_off = self.ds1_ra(self.agg.laseroff_avg[0,:,:,:])
+        ds2_off = self.ds2_ra(self.agg.laseroff_avg[1,:,:,:])
+        off_avg = np.concatenate([ds2_off, ds1_off])
+
+        diff = on_avg - off_avg
+        percent = diff / off_avg
+
+        transmission = {
+                        'title'         : 'RUN %d | %d SHOTS PROCESSED' % (args.run, i),
+                        'q_values'      : q,
+                        'laser_on_avg'  : on_avg,
+                        'laser_off_avg' : off_avg,
+                        'diff'          : diff,
+                        'percent_diff'  : percent
+                       }
+        
+        socket.send("data", zmq.SNDMORE)
+        socket.send_pyobj(transmission)
+        
+        return
+
+
+    def finish():
+        print 'Done processing run.'
+
+        fn = '/reg/d/psdm/cxi/cxif7214/scratch/timehists/run%d.h5' % args.run
+        if os.path.exists(fn):
+            os.remove(fn)
+            print 'Removing old file: %s' % fn
+        
+        tt_hist.save(fn)
+        print 'Wrote: %s' % fn
+        
+    return
+    
+
+if __name__ == '__main__':
+    
+    ma = MinittiAnalyzer()
+    
+    mr = core.MapReducer(ma.map,
+                         ma.reduce,
+                         ma.action,
+                         result_buffer=camera_buffer,
+                         source=ma.data_source())
+                         
+    mr.start(verbose=True)
+    
+    
+    
