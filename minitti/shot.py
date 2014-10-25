@@ -1,5 +1,24 @@
 
+"""
+"""
+
+import numpy as np
 import psana
+
+
+global ds1_src
+ds1_src = psana.Source('DetInfo(CxiDs1.0:Cspad.0)')
+global ds2_src
+ds2_src = psana.Source('DetInfo(CxiDs2.0:Cspad.0)')
+global evr_src
+evr_src = psana.Source('DetInfo(NoDetector.0:Evr.0)')
+
+def print_evrs(run_num):
+    ds = psana.DataSource('exp=cxif7214:run=39')
+    for evt in ds.events(): 
+        print [e.eventCode() for e in evt.get(psana.EvrData.DataV3, psana.Source('DetInfo(NoDetector.0:Evr.0)')).fifoEvents()]
+    return
+
 
 class Event(object):
     """
@@ -18,14 +37,12 @@ class Event(object):
     """
     
     def __init__(self, psana_event, epics, 
-                 ds1_offset=0.0, ds2_offset=0.0, energy_offset=0.0):
+                 ds1_offset=0.0, ds2_offset=0.0, energy_offset=0.0,
+                 corrected=True):
                  
         self.psana_event = psana_event
-        
-        self.ds1_src = psana.Source('DetInfo(CxiDs1.0:Cspad.0)')
-        self.ds2_src = psana.Source('DetInfo(CxiDs2.0:Cspad.0)')
-        self.evr_src = psana.Source('DetInfo(NoDetector.0:Evr.0)')
-        
+        self.corrected = corrected        
+
         self.ds1_offset = ds1_offset
         self.ds2_offset = ds2_offset
         self.energy_offset = energy_offset
@@ -35,8 +52,11 @@ class Event(object):
         return
         
     def _get_EVR_codes(self):
-        fifos = self.psana_event.get(psana.EvrData.DataV3, self.evr_src).fifoEvents()
-        self.evr_codes = [e.eventCode() for e in fifos]
+        if self.psana_event:
+            fifos = self.psana_event.get(psana.EvrData.DataV3, evr_src).fifoEvents()
+            self.evr_codes = [e.eventCode() for e in fifos]
+        else:
+            self.evr_codes = []
         return
         
     @property
@@ -45,26 +65,22 @@ class Event(object):
         
     @property
     def pump_laser_status(self):
-        if (183 in self.evr_codes) and not (188 in self.evr_codes):
+        if (183 in self.evr_codes) and not (184 in self.evr_codes):
             status = 1
-        elif not (183 in self.evr_codes) and (188 in self.evr_codes):
+        elif not (183 in self.evr_codes) and (184 in self.evr_codes):
             status = 0
         else:
-            #status = 'unknown'
-            status = 0
+            status = 'unknown'
         return status
         
     @property
     def xfel_status(self):
-
         if (187 in self.evr_codes) and not (189 in self.evr_codes):
             status = 1
         elif not (187 in self.evr_codes) and (189 in self.evr_codes):
             status = 0
         else:
-            #status = 'unknown'
-            status = 0 
-
+            status = 'unknown'
         return status
         
     @property
@@ -87,24 +103,31 @@ class Event(object):
         return 0
         
     @property
-    def ds1_intensities(self, corrected=True):
-        if corrected:
-            image = self.psana_event.get(psana.ndarray_float32_3, self.ds1_src, 
+    def ds1_intensities(self):
+        if self.corrected:
+            image = self.psana_event.get(psana.ndarray_float32_3, ds1_src, 
                                         'calibrated_ndarr')
         else:
-            cspad = self.psana_event.get(psana.CsPad.DataV2, self.ds1_src)
-            image = np.vstack([ cspad.quads(i).data() for i in range(4) ])
-        if image == None: print 'warning: ds1 is NONE'
+            cspad = self.psana_event.get(psana.CsPad.DataV2, ds1_src)
+            if cspad:
+                image = np.vstack([ cspad.quads(i).data() for i in range(4) ])
+            else:
+                image = None
+        if image == None:
+            print 'warning: ds1 is NONE'
         return image
     
     @property
-    def ds2_intensities(self, corrected=True):
-        if corrected:
-            image = self.psana_event.get(psana.ndarray_float32_3, self.ds2_src, 
+    def ds2_intensities(self):
+        if self.corrected:
+            image = self.psana_event.get(psana.ndarray_float32_3, ds2_src, 
                                          'calibrated_ndarr')
         else:
-            cspad = self.psana_event.get(psana.CsPad.DataV2, self.ds2_src)
-            image = np.vstack([ cspad.quads(i).data() for i in range(4) ])
+            cspad = self.psana_event.get(psana.CsPad.DataV2, ds2_src)
+            if cspad:
+                image = np.vstack([ cspad.quads(i).data() for i in range(4) ])
+            else:
+                image = None
         if image == None: print 'warning: ds2 is NONE'
         return image
 

@@ -14,8 +14,7 @@ class PPPlot(object):
     def __init__(self, init_data, framegen, info, rate):
 
         self.figure = plt.figure(figsize=(12,6))
-        #self.figure.canvas.set_window_title(init_data['title'])
-        #self.ax.set_title(init.ts, loc='right')
+        self.title_txt = self.figure.suptitle('Waiting for data...')
 
         self.axL = plt.subplot(121)
         self.axR = plt.subplot(122)
@@ -36,7 +35,7 @@ class PPPlot(object):
         self.axR.cla()
 
         if 'title' in data.keys():
-            self.figure.suptitle(data['title'])
+            self.title_txt.set_text(data['title'])
 
         if 'laser_on_avg' in data.keys():
             self.axL.plot(data['q_values'], data['laser_on_avg'], color='pink', lw=2, label='laser_on_avg')

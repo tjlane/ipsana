@@ -117,6 +117,9 @@ class EventAggregator(object):
     
         
     def add_shot(self, cspad_intensities, laser_status, polarization):
+
+        if None in cspad_intensities:
+            raise RuntimeError()
  
         # laser status
         if laser_status == 0:

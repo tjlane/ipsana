@@ -25,30 +25,27 @@ update_frequency  = 100
 ds1_offset    = 500.0 # mm 
 ds2_offset    = 2800.0 # mm
 energy_offset = 0.0 # eV
-
-psana.setConfigFile('/reg/d/psdm/cxi/cxif7214/res/cfg/cxif7214.cfg')
-psana.setOption('psana.l3t-accept-only',0)
 # ---------------------------
 
 
-class MinittiAnalyzer(object):
+class MinittiAnalyzer(core.MapReducer):
     
-    def __init__(self):
+    def __init__(self, **kwargs):
         
         self.args = self.parse_args()
+        self.zmq_initialized = False
+
+        super(MinittiAnalyzeri, self).__init__(self.map, self.reduce, self.action_func, **kwargs)
         
-        self.agg = EventAggregator()
-        self.tt_hist = TTHistogram(ds1_geom, ds2_geom, bin_width=5.0)
+        ds = psana.DataSource(self._source_string())
         
-        ds = psana.DataSource(self.data_source())
-        
-        epics = ds.env().epicsStore()
-        calib = ds.env().calibStore()
+        self.epics = ds.env().epicsStore()
+        self.calib = ds.env().calibStore()
         ds.events().next()
         
-        self.energy = epics.value('SIOC:SYS0:ML00:AO627') + energy_offset
-        self.ds1_dist = epics.value('CXI:DS1:MMS:06.RBV') + ds1_offset
-        self.ds2_dist = epics.value('CXI:DS2:MMS:07.RBV') + ds2_offset
+        self.energy = self.epics.value('SIOC:SYS0:ML00:AO627') + energy_offset
+        self.ds1_dist = self.epics.value('CXI:DS1:MMS:06.RBV') + ds1_offset
+        self.ds2_dist = self.epics.value('CXI:DS2:MMS:07.RBV') + ds2_offset
         
         # geometries are (3, 32, 185, 388)
         ds1_cspad = cspad.CSPad.load('/reg/d/psdm/cxi/cxif7214/res/geometries/v0/default_5mm_dilation.cspad')
@@ -63,6 +60,9 @@ class MinittiAnalyzer(object):
         
         self.ds1_ra = RadialAverager(ds1_geom[0,:,:,:], ds1_mask, n_bins=n_q_bins)
         self.ds2_ra = RadialAverager(ds2_geom[0,:,:,:], ds2_mask, n_bins=n_q_bins)
+
+        self.agg = EventAggregator()
+        self.tt_hist = TTHistogram(ds1_geom, ds2_geom, bin_width=5.0)
         
         return
     
@@ -90,10 +90,17 @@ class MinittiAnalyzer(object):
             action='store_true',
             help='open a corresponding client that will show plots'
         )
+
+        if args.source == -1:
+            self._source = 'cxishmem'
+        else:
+            self._source = 'exp=cxif7214:run=%d:idx' % parser.parse_args().run
+ 
         return parser.parse_args()
     
         
     def init_zmq(self):
+        self.zmq_initialized = True
         context = zmq.Context()
         socket = context.socket(zmq.PUB)
         socket.setsockopt(zmq.SNDHWM, 10)
@@ -108,30 +115,33 @@ class MinittiAnalyzer(object):
         return s
     
         
-    def map(self, event):
-        return Event(event, self.epics, 
-                     self.ds1_offset, self.ds2_offset,
-                     self.energy_offset)
+    def map(self, evt):
+        return Event(evt, self.epics, 
+                     ds1_offset, ds2_offset,
+                     energy_offset, corrected=False)
     
         
-    def reduce(self, evt):
+    def reduce(self, evt, old=None):
         
         cspad_intensities = np.array((evt.ds1_intensities,
                                       evt.ds2_intensities))
-        
+       
         self.agg.add_shot(cspad_intensities,
                           evt.pump_laser_status,
-                          evt.polarization_status)
+                          0)
                  
         self.tt_hist.add_shot(evt.pumpprobe_delay_fs,
                               evt.pump_laser_status,
                               evt.polarization_status,
                               cspad_intensities)
         
-        return
+        return 0
     
         
     def action(self, placeholder=None):
+
+        if not self.zmq_initialized:
+            self.init_zmq()
         
         q = np.concatenate([self.ds2_ra.bin_centers,
                             self.ds1_ra.bin_centers])
@@ -148,7 +158,7 @@ class MinittiAnalyzer(object):
         percent = diff / off_avg
 
         transmission = {
-                        'title'         : 'RUN %d | %d SHOTS PROCESSED' % (args.run, i),
+                        'title'         : 'RUN %d | x SHOTS PROCESSED' % (self.args.run,),
                         'q_values'      : q,
                         'laser_on_avg'  : on_avg,
                         'laser_off_avg' : off_avg,
@@ -156,8 +166,8 @@ class MinittiAnalyzer(object):
                         'percent_diff'  : percent
                        }
         
-        socket.send("data", zmq.SNDMORE)
-        socket.send_pyobj(transmission)
+        self.socket.send("data", zmq.SNDMORE)
+        self.socket.send_pyobj(transmission)
         
         return
 
@@ -173,20 +183,12 @@ class MinittiAnalyzer(object):
         tt_hist.save(fn)
         print 'Wrote: %s' % fn
         
-    return
+        return
     
 
 if __name__ == '__main__':
-    
-    ma = MinittiAnalyzer()
-    
-    mr = core.MapReducer(ma.map,
-                         ma.reduce,
-                         ma.action,
-                         result_buffer=camera_buffer,
-                         source=ma.data_source())
-                         
-    mr.start(verbose=True)
+    m = MinittiAnalyzer(config_file='/reg/d/psdm/cxi/cxif7214/res/cfg/cxif7214.cfg')
+    m.start(verbose=True)
     
     
     
