@@ -13,116 +13,121 @@ import psana
 from trapdoor import core
 
 
-def parse():
+class FastAverager(core.MapReducer):
 
-    hutch = os.environ['EXPT'][:3]
-    expt  = os.environ['EXPT']
+    def __init__(self):
+        
+        self.parse()
+        
+        camera_buffer = np.zeros((2, 32, 185, 388), dtype=np.float64)
+        basedir = '/reg/d/psdm/%s/%s/res/cfg' % (self.hutch, self.expt)
+        config_fn = os.path.join(basedir, '%s.cfg' % self.expt)
+        
+        super(FastAverager,self).__init__(self.map_func,
+                                  self.reduce_func,
+                                  self.action_func,
+                                  result_buffer=camera_buffer,
+                                  config_file=config_fn,
+                                  source='exp=%s:run=%d' % (expt, int(args.run)))
 
-    parser = argparse.ArgumentParser(description='Average some runs from the current experiment')
-
-    parser.add_argument(
-       '-r', '--run',
-        type=int,
-        help='run to process',
-        required=True
-    )
-
-    parser.add_argument(
-        '-m', '--max',
-        type=int,
-        help='max number of shots to average',
-        default=None)
-
-    args = parser.parse_args()
-
-    return args, hutch, expt
-
-
-def map_func(evt, threshold=20.0):
-
-    global cspad_ds1_src, cspad_ds2_src, evr_src, shot_index
-
-    EVR_code = evt.get(psana.EvrData.DataV3, evr_src)
-
-    ds1 = evt.get(psana.ndarray_float32_3, cspad_ds1_src, 'calibrated_ndarr')
-    ds2 = evt.get(psana.ndarray_float32_3, cspad_ds2_src, 'calibrated_ndarr')
-
-    if (ds1 == None) or (ds2 == None):
-        print 'Error, data is `None`'
-        return np.zeros((2, 32, 185, 388))
-    elif EVR_code is None:
-        print 'Error, EVR code is `None`'
-        return np.zeros((2, 32, 185, 388))
-
-    ds1 = ds1.copy()
-    ds2 = ds2.copy()
-
-    threshold = 20.0
-    ds1[ds1 < threshold] = 0.0
-    ds2[ds2 < threshold] = 0.0
-
-    cameras = np.array([ds1, ds2])
-
-    return cameras
-
-
-def reduce_func(update, old):
-    """
-    basic sum
-    """
-    global shot_index
-    if not np.sum(np.abs(update)) == 0.0:
-        shot_index += 1
-        return update + old
-    else:
-        return old
-
-
-def action_func(cameras):
-    global shot_index, max
+        self.cspad_ds1_src = psana.Source('DetInfo(CxiDs1.0:Cspad.0)')
+        self.cspad_ds2_src = psana.Source('DetInfo(CxiDs2.0:Cspad.0)')
+        self.evr_src = psana.Source('DetInfo(NoDetector.0:Evr.0)')
+        self.shot_index = 0
+        
+        return
     
-    print shot_index
-    if shot_index == max:
-        output_path = '/reg/d/psdm/%s/%s/scratch/averages' % (hutch, expt)
-        np.save(os.path.join(output_path, 'run%d_ds1_average.npy' % args.run), ds1_average)
-        np.save(os.path.join(output_path, 'run%d_ds2_average.npy' % args.run), ds2_average)
-        raise core.ShutdownInterrupt('Max shots reached')
+        
+    def parse(self):
 
-    return
+        self.hutch = os.environ['EXPT'][:3]
+        self.expt  = os.environ['EXPT']
+
+        parser = argparse.ArgumentParser(description='Average some runs from the current experiment')
+
+        parser.add_argument(
+           '-r', '--run',
+            type=int,
+            help='run to process',
+            required=True)
+
+        parser.add_argument(
+            '-m', '--max',
+            type=int,
+            help='max number of shots to average',
+            default=None)
+
+        self.args = parser.parse_args()
+
+        return
+    
+
+    def map_func(self, evt, threshold=20.0):
+
+
+        EVR_code = evt.get(psana.EvrData.DataV3, self.evr_src)
+
+        ds1 = evt.get(psana.ndarray_float32_3, self.cspad_ds1_src, 'calibrated_ndarr')
+        ds2 = evt.get(psana.ndarray_float32_3, self.cspad_ds2_src, 'calibrated_ndarr')
+
+        if (ds1 == None) or (ds2 == None):
+            print 'Error, data is `None`'
+            return np.zeros((2, 32, 185, 388))
+        elif EVR_code is None:
+            print 'Error, EVR code is `None`'
+            return np.zeros((2, 32, 185, 388))
+
+        ds1 = ds1.copy()
+        ds2 = ds2.copy()
+
+        threshold = 20.0
+        ds1[ds1 < threshold] = 0.0
+        ds2[ds2 < threshold] = 0.0
+
+        cameras = np.array([ds1, ds2])
+
+        return cameras
+    
+
+    def reduce_func(self, update, old):
+        """
+        basic sum
+        """
+
+        if not np.sum(np.abs(update)) == 0.0:
+            self.shot_index += 1
+            return update + old
+        else:
+            return old
+
+
+    def action_func(self, cameras):
+        
+        print self.shot_index
+        if self.shot_index == self.args.max:
+            print 'Max number of shots reached'
+
+        return
+
+
+    def save_result(self):
+        
+        ds1_average = self._result[0,:,:,:] / float(self.shot_index)
+        ds2_average = self._result[1,:,:,:] / float(self.shot_index)
+
+        output_path = '/reg/d/psdm/%s/%s/scratch/averages' % (self.hutch, self.expt)
+        np.save(os.path.join(output_path, 'run%d_ds1_average.npy' % self.args.run), ds1_average)
+        np.save(os.path.join(output_path, 'run%d_ds2_average.npy' % self.args.run), ds2_average)
+        
+        print 'Saved results to: %s' % output_path
+        
+        return
 
 
 def main():
 
-    args, hutch, expt = parse()
-
-    camera_buffer = np.zeros((2, 32, 185, 388), dtype=np.float64)
-    basedir = '/reg/d/psdm/%s/%s/res/cfg' % (hutch, expt)
-    config_fn = os.path.join(basedir, '%s.cfg' % expt)
-
-    monitor = core.MapReducer(map_func,
-                              reduce_func,
-                              action_func,
-                              result_buffer=camera_buffer,
-                              config_file=config_fn,
-                              source='exp=%s:run=%d' % (expt, int(args.run)))
-
-    global cspad_ds1_src, cspad_ds2_src, evr_src, shot_index, max
-    cspad_ds1_src = psana.Source('DetInfo(CxiDs1.0:Cspad.0)')
-    cspad_ds2_src = psana.Source('DetInfo(CxiDs2.0:Cspad.0)')
-    evr_src = psana.Source('DetInfo(NoDetector.0:Evr.0)')
-    shot_index = 0
-    max = args.max
-
-    monitor.start(verbose=True)
-
-    ds1_average = monitor._result[0,:,:,:] / float(shot_index)
-    ds2_average = monitor._result[1,:,:,:] / float(shot_index)
-
-    output_path = '/reg/d/psdm/%s/%s/scratch/averages' % (hutch, expt)
-    np.save(os.path.join(output_path, 'run%d_ds1_average.npy' % args.run), ds1_average)
-    np.save(os.path.join(output_path, 'run%d_ds2_average.npy' % args.run), ds2_average)
-
-    print 'Saved results to: %s' % output_path
+    fa = FastAverager()
+    fa.start(verbose=True)
 
     return
 
