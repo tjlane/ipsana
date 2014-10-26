@@ -1,0 +1,56 @@
+#!/usr/bin/env python
+
+import sys
+import numpy as np
+from matplotlib import pyplot as plt
+
+from pypad import cspad
+from pypad import plot as padplot
+from pypad.read import enforce_raw_img_shape as eris
+from minitti.libminitti import RadialAverager
+
+print 'usage: ./show-averages <run> <detector>'
+print 'default detector is front'
+print sys.argv
+
+run = int(sys.argv[1])
+det = sys.argv[2]
+
+if det in ['1', 'ds1', 'front']:
+    det = 'ds1'
+elif det in ['2', 'ds2', 'back']:
+    det = 'ds2'
+else:
+    print 'WAAAAAA -- dont understand detector: %s' % det
+    print 'use "front" or "back" for detector'
+
+average_file_path = '/reg/d/psdm/cxi/cxif7214/scratch/averages/run%d_%s_average.npy'
+run_average = np.load(average_file_path % (run, det))
+print 'loaded runs: %d, camera: %s' % (run, det)
+
+geom = cspad.CSPad.load('/reg/d/psdm/cxi/cxif7214/scratch/averages/approx.cspad')
+#dtc = geom.to_thor(9500, 108)
+#q_values = dtc.recpolar[:,0]
+
+q_values = np.load('/reg/d/psdm/cxi/cxif7214/scratch/averages/approx_qs.npy')
+mask = np.ones((32 * 185 * 388))
+
+ra = RadialAverager(q_values, mask)
+
+Iq1 = ra( eris(run_average).flatten() )
+
+plt.figure(figsize=(12,6))
+plt.suptitle('Run %d,%s detector' % (run, det))
+
+ax = plt.subplot(121)
+padplot.imshow_cspad( geom( eris(run_average) ), ax=ax, vmax=5, scrollable=True )
+#plt.imshow( geom( eris(run_average) ) )
+
+ax = plt.subplot(122)
+plt.plot(ra.bin_centers, Iq1, lw=2)
+plt.xlabel(r'q $\AA^{-1}$')
+plt.ylabel('Intensity Difference (ADU)')
+
+plt.show()
+
+
