@@ -40,7 +40,7 @@ class PPPlot(object):
         if 'laser_on_avg' in data.keys():
             self.axL.plot(data['q_values'], data['laser_on_avg'], color='pink', lw=2, label='laser_on_avg')
         if 'laser_off_avg' in data.keys():
-            self.axL.plot(data['q_values'], data['laser_off_avg'], color='green', lw=2, label='laser_off_avg')
+            self.axL.plot(data['q_values'], -data['laser_off_avg'], color='green', lw=2, label='laser_off_avg')
         self.axL.legend()
 
         if 'diff' in data.keys():

@@ -1,0 +1,191 @@
+#!/usr/bin/env python
+
+"""
+TJL Oct 22, 2014
+"""
+
+import sys
+sys.path.append('/reg/neh/home2/tjlane/opt/minitti_beamtime')
+sys.path.append('/reg/neh/home2/tjlane/opt/pypad')
+sys.path.append('/reg/neh/home2/tjlane/opt/trapdoor')
+import argparse
+import numpy as np
+
+from minitti.libminitti import *
+from minitti.shot import Event
+
+from pypad import psana as psutil
+from pypad import cspad
+
+import psana
+from trapdoor import core
+
+
+# ---------------------------
+# manually set parameters
+n_q_bins          = 101
+update_frequency  = 100
+
+ds1_offset    = 500.0 # mm 
+ds2_offset    = 2800.0 # mm
+energy_offset = 0.0 # eV
+# ---------------------------
+
+
+class MinittiAnalyzer(core.MapReducer):
+    
+    def __init__(self, **kwargs):
+        
+        self.args = self.parse_args()
+        self.zmq_initialized = False
+
+        self.num_laseroff = 0
+        self.num_laseron  = 0
+
+        self.laseroff_avg = np.zeros(n_q_bins)
+        self.laseron_avg  = np.zeros(n_q_bins)
+
+        super(MinittiAnalyzer, self).__init__(self.map, self.reduce, self.action,
+                                              source=self._source, **kwargs)
+        
+        print self._source_string 
+        ds = psana.DataSource(self._source_string)
+        
+        self.epics = ds.env().epicsStore()
+        self.calib = ds.env().calibStore()
+        #ds.events().next()
+        
+        self.energy = self.epics.value('SIOC:SYS0:ML00:AO627') + energy_offset
+        self.ds1_dist = self.epics.value('CXI:DS1:MMS:06.RBV') + ds1_offset
+        
+        # geometries are (3, 32, 185, 388)
+        ds1_geom = np.load('/reg/neh/home2/tjlane/rough_minitti_geom.npy')
+
+        # masks are (32, 185, 388)
+        #ds1_mask = np.load('/reg/d/psdm/cxi/cxif7214/res/masks/v0/ds1.npy')
+        ds1_mask = np.ones((32, 185, 388))
+        
+        self.ds1_ra = RadialAverager(ds1_geom[0], ds1_mask, n_bins=n_q_bins)
+        
+        return
+    
+        
+    def parse_args(self):
+        parser = argparse.ArgumentParser(description='Psana plot server application')
+        parser.add_argument(
+            '-r',
+            '--run',
+            type=int,
+            default=-1,
+            help='Which run to analyze, -1 for live stream',
+        )
+        parser.add_argument(
+            '-p',
+            '--port',
+            metavar='PORT',
+            type=int,
+            default=4747,
+            help='the tcp port to use on the server'
+        )
+
+        if parser.parse_args().run == -1:
+            self._source = 'cxishmem'
+        else:
+            self._source = 'exp=cxif7214:run=%d' % parser.parse_args().run
+ 
+        return parser.parse_args()
+    
+        
+    def init_zmq(self):
+        self.zmq_initialized = True
+        context = zmq.Context()
+        socket = context.socket(zmq.PUB)
+        socket.setsockopt(zmq.SNDHWM, 10)
+        socket.bind("tcp://*:%d" % self.args.port)
+        print "Broadcasting via ZMQ on port: %d" % self.args.port
+        self.socket = socket
+        return
+    
+        
+    def map(self, evt):
+
+        if not evt:
+            return np.zeros(n_q_bins)
+        
+        try:
+            x = Event(evt, self.epics, 
+                      495.0, 0.0,
+                      0.0, corrected=True)
+        except:
+            return np.zeros(n_q_bins)
+
+        if x.ds1_intensities != None:
+            itx = x.ds1_intensities.copy()
+            itx[itx < 20.0] = 0.0
+            Iq = self.ds1_ra(x.ds1_intensities)
+        else:
+            Iq = np.zeros(n_q_bins)
+
+        Iq[0] = 1e-16
+        if Iq[0] < 0:
+            print "WAAAAAAAA!!!!!!1 Iq[0] < 0"
+
+        if x.pump_laser_status == 0:
+            Iq *= -1
+        return Iq
+    
+        
+    def reduce(self, Iq, old):
+        if Iq[0] < 0:
+            self.num_laseroff += 1
+            update_average(self.num_laseroff, self.laseroff_avg, Iq)
+        else:
+            self.num_laseron += 1
+            update_average(self.num_laseron, self.laseron_avg, Iq)    
+        return Iq + old
+
+    
+    def action(self, placeholder=None):
+
+        n = self.num_laseroff + self.num_laseron
+
+        if not self.zmq_initialized:
+            self.init_zmq()
+
+        if n % 100 == 0:
+            q = self.ds1_ra.bin_centers
+
+            on_avg  = self.laseron_avg
+            off_avg = self.laseroff_avg
+
+            diff = on_avg + off_avg # sum b/c one is neg
+            percent = diff / (-1.0*off_avg)
+ 
+            if self.args.run == -1:
+                s = 'LIVE STREAM'
+            else:
+                s = 'RUN %d' % self.args.run
+            title_txt = '%s | %d SHOTS PROCESSED' % (s, n)
+
+            transmission = {
+                            'title'         : title_txt,
+                            'q_values'      : q,
+                            'laser_on_avg'  : on_avg,
+                            'laser_off_avg' : off_avg,
+                            'diff'          : diff,
+                            'percent_diff'  : percent
+                           }
+       
+            self.socket.send("data", zmq.SNDMORE)
+            self.socket.send_pyobj(transmission)
+        
+        return
+
+
+if __name__ == '__main__':
+    m = MinittiAnalyzer(result_buffer=np.zeros(n_q_bins),
+                        config_file='/reg/neh/operator/cxiopr/tjlane/cxif7214.cfg')
+    m.start(verbose=True)
+    
+    
+    

@@ -13,10 +13,10 @@ import argparse
 
 import numpy as np
 
-hutch = # WORK
-expt  = # WORK
+hutch = 'cxi'
+expt  = 'cxif7214'
 
-SCRIPT_PATH = # WORK #'/reg/d/psdm/%s/%s/res/bin/analyze_run.py' % (hutch, expt)
+SCRIPT_PATH = '/reg/neh/home2/tjlane/opt/psana-utils/bin/average'
 BATCH_SIZE  = 8
 
 parser = argparse.ArgumentParser(description='Batch analyze some runs from the cxii0114 experiment!')
@@ -40,7 +40,7 @@ def submit_job(bsub_command_str, logfile='tmp.log', queue='psfehq'):
 
     if os.path.exists(logfile):
         os.remove(logfile)
-    p = subprocess.check_call(['bsub', '-o %s' % logfile, '-q %s' % queue, bsub_command_str],
+    p = subprocess.check_call(['bsub', '-q %s' % queue, bsub_command_str],
                               stdout=subprocess.PIPE) 
     if not p == 0:
         print "bsub returned non-zero exit code: there was an error with your job submission!"
