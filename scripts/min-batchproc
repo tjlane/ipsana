@@ -80,7 +80,7 @@ for i,run in enumerate(runs):
 
     runs_in_job.append(run)
     run_logfile = os.path.join(log_dir, 'job%d_run%d.log' % (job_index, i+1))
-    bsub_command_str += '%s %s -t -r %d >& %s &  ' % ('python', # python bin
+    bsub_command_str += '%s %s -r %d >& %s &  ' % ('python', # python bin
                                                       SCRIPT_PATH,
                                                       run, run_logfile)
 

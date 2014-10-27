@@ -24,7 +24,7 @@ from trapdoor import core
 # ---------------------------
 # manually set parameters
 n_q_bins          = 101
-update_frequency  = 100
+update_frequency  = 1000
 
 ds1_offset    = 500.0 # mm 
 ds2_offset    = 2800.0 # mm
@@ -59,14 +59,16 @@ class MinittiAnalyzer(core.MapReducer):
         self.ds1_dist = self.epics.value('CXI:DS1:MMS:06.RBV') + ds1_offset
         
         # geometries are (3, 32, 185, 388)
-        ds1_geom = np.load('/reg/neh/home2/tjlane/rough_minitti_geom.npy')
+        #ds1_geom = np.load('/reg/neh/home2/tjlane/rough_minitti_geom.npy')
+        ds1_qs = np.load('/reg/neh/home2/tjlane/approx_qs.npy')
 
         # masks are (32, 185, 388)
-        #ds1_mask = np.load('/reg/d/psdm/cxi/cxif7214/res/masks/v0/ds1.npy')
-        ds1_mask = np.ones((32, 185, 388))
+        ds1_mask = np.load('/reg/neh/home2/tjlane/yao_plus_tj_mask.npy')
+        #ds1_mask = np.ones((32, 185, 388))
         
-        self.ds1_ra = RadialAverager(ds1_geom[0], ds1_mask, n_bins=n_q_bins)
-        
+        #self.ds1_ra = RadialAverager(ds1_geom[0], ds1_mask, n_bins=n_q_bins)
+        self.ds1_ra = RadialAverager(ds1_qs, ds1_mask, n_bins=n_q_bins)        
+
         return
     
         
@@ -115,7 +117,7 @@ class MinittiAnalyzer(core.MapReducer):
         try:
             x = Event(evt, self.epics, 
                       495.0, 0.0,
-                      0.0, corrected=True)
+                      0.0, corrected=False)
         except:
             return np.zeros(n_q_bins)
 
@@ -152,7 +154,7 @@ class MinittiAnalyzer(core.MapReducer):
         if not self.zmq_initialized:
             self.init_zmq()
 
-        if n % 100 == 0:
+        if n % update_frequency == 0:
             q = self.ds1_ra.bin_centers
 
             on_avg  = self.laseron_avg
@@ -178,6 +180,10 @@ class MinittiAnalyzer(core.MapReducer):
        
             self.socket.send("data", zmq.SNDMORE)
             self.socket.send_pyobj(transmission)
+
+            if self.offline:
+                np.save('/reg/d/psdm/cxi/cxif7214/scratch/laseronoff/run%d_on_avg.npy' % self.args.run, on_avg)
+                np.save('/reg/d/psdm/cxi/cxif7214/scratch/laseronoff/run%d_off_avg.npy' % self.args.run, off_avg)
         
         return
 

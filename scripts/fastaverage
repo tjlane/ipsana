@@ -28,7 +28,7 @@ class FastAverager(core.MapReducer):
                                   self.action_func,
                                   result_buffer=camera_buffer,
                                   config_file=config_fn,
-                                  source='exp=%s:run=%d' % (expt, int(args.run)))
+                                  source='exp=%s:run=%d' % (self.expt, int(self.args.run)))
 
         self.cspad_ds1_src = psana.Source('DetInfo(CxiDs1.0:Cspad.0)')
         self.cspad_ds2_src = psana.Source('DetInfo(CxiDs2.0:Cspad.0)')
@@ -80,7 +80,6 @@ class FastAverager(core.MapReducer):
         ds1 = ds1.copy()
         ds2 = ds2.copy()
 
-        threshold = 20.0
         ds1[ds1 < threshold] = 0.0
         ds2[ds2 < threshold] = 0.0
 
@@ -105,7 +104,10 @@ class FastAverager(core.MapReducer):
         
         print self.shot_index
         if self.shot_index == self.args.max:
+            self.save_result()
             print 'Max number of shots reached'
+            self.stop()
+            self.shutdown('Max number of shots reached')
 
         return
 

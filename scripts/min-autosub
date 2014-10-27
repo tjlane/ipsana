@@ -10,7 +10,7 @@ hutch = os.environ['EXPT'][:3]
 expt  = os.environ['EXPT']
 
 XTC_DIR      = '/reg/d/psdm/%s/%s/xtc' % (hutch, expt)
-BATCH_SCRIPT = 'batchproc'
+BATCH_SCRIPT = 'min-batchproc'
 HDF5_DIR     = '/reg/d/psdm/%s/%s/scratch/hdf5' % (hutch, expt)
 
 while True:

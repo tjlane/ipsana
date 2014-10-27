@@ -12,6 +12,11 @@ global ds2_src
 ds2_src = psana.Source('DetInfo(CxiDs2.0:Cspad.0)')
 global evr_src
 evr_src = psana.Source('DetInfo(NoDetector.0:Evr.0)')
+global dark
+#dark = np.load('/reg/d/psdm/cxi/cxif7214/scratch/averages/run107_dark.npy')
+dark = np.load('/reg/neh/home2/tjlane/opt/minitti_beamtime/run107_dark.npy')
+dark += np.load('/reg/neh/home2/tjlane/opt/minitti_beamtime/run101_ds1_average.npy')
+
 
 def print_evrs(run_num):
     ds = psana.DataSource('exp=cxif7214:run=39')
@@ -111,6 +116,7 @@ class Event(object):
             cspad = self.psana_event.get(psana.CsPad.DataV2, ds1_src)
             if cspad:
                 image = np.vstack([ cspad.quads(i).data() for i in range(4) ])
+                image -= dark
             else:
                 image = None
         if image == None:

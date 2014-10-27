@@ -1,0 +1,164 @@
+#!/usr/bin/env python
+
+import os
+import sys
+
+#sys.path.append('/reg/neh/home2/tjlane/opt/minitti_beamtime')
+#sys.path.append('/reg/neh/home2/tjlane/opt/pypad')
+#sys.path.append('/reg/neh/home2/tjlane/opt/trapdoor')
+
+import time
+import argparse
+import h5py
+
+import numpy as np
+from scipy import signal
+import psana 
+
+
+ERASE_LINE = '\x1b[1A\x1b[2K'
+
+
+class EVR_STATUS(object):
+
+    def __init__(self, code):
+
+        self.code = code
+        self.num_shots = 0
+
+        self.laser_on   = 0
+        self.laser_off  = 0
+        self.laser_unkn = 0
+
+        self.xray_on   = 0
+        self.xray_off  = 0
+        self.xray_unkn = 0
+
+        return
+
+    def add_shot(self, cspad_intensities, aqiris_wvfm):
+        self.num_shots += 1
+
+        if self._is_laser_on(aqiris_wvfm):
+            self.laser_on += 1
+        else:
+            self.laser_off += 1
+
+        if self._is_xray_on(cspad_intensities):
+            self.xray_on += 1
+        else:
+            self.xray_off += 1
+           
+        return
+
+    def _is_xray_on(self, voltage, threshold=1.9):
+        if voltage < threshold:
+            xray_status = 1
+        else:
+            xray_status = 0
+        return xray_status
+
+    def _is_laser_on(self, wvfm, medfilt_size=7, threshold=600.0):
+        print signal.medfilt(wvfm, medfilt_size)[175:180].mean()
+        if np.any( signal.medfilt(wvfm, medfilt_size)[175:180].mean() > threshold ):
+            laser_status = 1
+        else:
+            laser_status = 0
+        return laser_status
+
+    @property
+    def percent_laser_on(self):
+        if self.num_shots == 0:
+            return -1.0
+        return float(self.laser_on) / float(self.num_shots)
+
+    @property
+    def percent_xray_on(self):
+        if self.num_shots == 0:
+            return -1.0
+        return float(self.xray_on) / float(self.num_shots)
+
+
+
+parser = argparse.ArgumentParser(description='Average some runs from the current experiment')
+parser.add_argument(
+    '-r', '--run',
+    type=int,
+    help='run to process',
+    required=True,
+    default=-1)
+args = parser.parse_args()
+
+aqiris_src     = psana.Source('DetInfo(CxiEndstation.0:Acqiris.0)')
+cspad_ds1_src  = psana.Source('DetInfo(CxiDs1.0:Cspad.0)')
+evr_src        = psana.Source('DetInfo(NoDetector.0:Evr.0)')
+dg2_src        = psana.Source('DetInfo(CxiDg2.0:Ipimb.0)')
+
+# ----------------------------
+evr_codes = [180, 181, 183, 184, 187, 189, 192]
+evr_objects = [EVR_STATUS(x) for x in evr_codes]
+
+if args.run == -1:
+    print 'running from shmem'
+    ds = psana.DataSource('shmem=CXI.0:stop=no')
+else:
+    print "\nReading run #: %d" % args.run
+    ds = psana.DataSource('exp=cxif7214:run=%d' % int(args.run) )
+epics = ds.env().epicsStore()
+
+
+shot_index = 0
+for evt in ds.events():
+
+    # --> EVR CODES
+    EVR_code = evt.get(psana.EvrData.DataV3, evr_src)
+    if EVR_code is None:
+        print 'Error, EVR code is `None`'
+        continue
+
+    fifos = evt.get(psana.EvrData.DataV3, psana.Source('DetInfo(NoDetector.0:Evr.0)')).fifoEvents()
+    shot_evrs = [e.eventCode() for e in fifos]
+
+
+    # --> CSPAD
+    cspad = evt.get(psana.CsPad.DataV2, cspad_ds1_src)
+    if cspad:
+        ds1 = np.vstack([ cspad.quads(i).data() for i in range(4) ])
+        #print np.sum((ds1 > 1500) * (ds1 < 5000))
+        #print ds1.sum() - 3429322983
+    else:
+        print 'no cspad data'
+        continue
+
+
+    # --> Acqiris
+    aqiris = evt.get(psana.Acqiris.DataDescV1, aqiris_src)
+    aqiris_wvfm = aqiris.data(5).waveforms().flatten() # channel 6 waveform
+ 
+
+    # --> IPM
+    ipm = evt.get(psana.Ipimb.DataV2, dg2_src)
+    if ipm is None:
+        print 'No IMP'
+        continue
+    ipm_voltage = ipm.channel0Volts() + ipm.channel1Volts() +\
+                  ipm.channel2Volts() + ipm.channel3Volts()
+
+    for evr_object in evr_objects:
+        if evr_object.code in shot_evrs:
+            evr_object.add_shot(ipm_voltage, aqiris_wvfm)
+
+
+    if shot_index % 100 == 0:
+        print ERASE_LINE * (5 + len(evr_objects))
+        print '\n\n -- REPORT (%d shots) --' % shot_index
+        print 'CODE\t% LASER\t% XRAY'
+        for evr_object in evr_objects:
+            print '%s\t%.2f\t%.2f' % (evr_object.code,
+                                      evr_object.percent_laser_on,
+                                      evr_object.percent_xray_on)
+
+    shot_index += 1
+
+
+
