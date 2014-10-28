@@ -24,7 +24,7 @@ from trapdoor import core
 # ---------------------------
 # manually set parameters
 n_q_bins          = 101
-update_frequency  = 1000
+update_frequency  = 100
 
 ds1_offset    = 500.0 # mm 
 ds2_offset    = 2800.0 # mm
@@ -53,20 +53,13 @@ class MinittiAnalyzer(core.MapReducer):
         
         self.epics = ds.env().epicsStore()
         self.calib = ds.env().calibStore()
-        #ds.events().next()
         
-        self.energy = self.epics.value('SIOC:SYS0:ML00:AO627') + energy_offset
-        self.ds1_dist = self.epics.value('CXI:DS1:MMS:06.RBV') + ds1_offset
+        #self.energy = self.epics.value('SIOC:SYS0:ML00:AO627') + energy_offset
+        #self.ds1_dist = self.epics.value('CXI:DS1:MMS:06.RBV') + ds1_offset
         
-        # geometries are (3, 32, 185, 388)
-        #ds1_geom = np.load('/reg/neh/home2/tjlane/rough_minitti_geom.npy')
-        ds1_qs = np.load('/reg/neh/home2/tjlane/approx_qs.npy')
-
-        # masks are (32, 185, 388)
-        ds1_mask = np.load('/reg/neh/home2/tjlane/yao_plus_tj_mask.npy')
-        #ds1_mask = np.ones((32, 185, 388))
-        
-        #self.ds1_ra = RadialAverager(ds1_geom[0], ds1_mask, n_bins=n_q_bins)
+        # masks/geometries are (32, 185, 388)
+        ds1_qs = np.load('/reg/neh/home2/tjlane/approx_qs2.npy')
+        ds1_mask = np.load('/reg/neh/home2/tjlane/jamesmask.npy')
         self.ds1_ra = RadialAverager(ds1_qs, ds1_mask, n_bins=n_q_bins)        
 
         return
@@ -117,14 +110,15 @@ class MinittiAnalyzer(core.MapReducer):
         try:
             x = Event(evt, self.epics, 
                       495.0, 0.0,
-                      0.0, corrected=False)
-        except:
+                      0.0, corrected=True)
+        except Exception as e:
+            print e
             return np.zeros(n_q_bins)
 
         if x.ds1_intensities != None:
             itx = x.ds1_intensities.copy()
             itx[itx < 20.0] = 0.0
-            Iq = self.ds1_ra(x.ds1_intensities)
+            Iq = self.ds1_ra(itx).astype(np.float)
         else:
             Iq = np.zeros(n_q_bins)
 
@@ -133,6 +127,7 @@ class MinittiAnalyzer(core.MapReducer):
             print "WAAAAAAAA!!!!!!1 Iq[0] < 0"
 
         if x.pump_laser_status == 0:
+            np.save('/reg/neh/home2/tjlane/test.npy', itx)
             Iq *= -1
         return Iq
     
@@ -156,6 +151,7 @@ class MinittiAnalyzer(core.MapReducer):
 
         if n % update_frequency == 0:
             q = self.ds1_ra.bin_centers
+            
 
             on_avg  = self.laseron_avg
             off_avg = self.laseroff_avg

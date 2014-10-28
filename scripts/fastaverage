@@ -34,6 +34,8 @@ class FastAverager(core.MapReducer):
         self.cspad_ds2_src = psana.Source('DetInfo(CxiDs2.0:Cspad.0)')
         self.evr_src = psana.Source('DetInfo(NoDetector.0:Evr.0)')
         self.shot_index = 0
+
+        print "Array comm status: %s" % self._use_array_comm
         
         return
     
@@ -84,6 +86,8 @@ class FastAverager(core.MapReducer):
         ds2[ds2 < threshold] = 0.0
 
         cameras = np.array([ds1, ds2])
+        cameras = cameras.astype(np.float64)
+        assert cameras.shape == (2, 32, 185, 388)
 
         return cameras
     
@@ -95,9 +99,11 @@ class FastAverager(core.MapReducer):
 
         if not np.sum(np.abs(update)) == 0.0:
             self.shot_index += 1
-            return update + old
+            new = update + old
         else:
-            return old
+            new = old
+
+        return new
 
 
     def action_func(self, cameras):

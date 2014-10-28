@@ -17,7 +17,7 @@ import psana
 
 
 ERASE_LINE = '\x1b[1A\x1b[2K'
-
+DARK = np.load('/reg/neh/home2/tjlane/run139.npy')
 
 class EVR_STATUS(object):
 
@@ -51,19 +51,28 @@ class EVR_STATUS(object):
            
         return
 
-    def _is_xray_on(self, voltage, threshold=1.9):
-        if voltage < threshold:
+    def _is_xray_on(self, cspad, threshold=1.4):
+        if cspad.sum() > threshold:
             xray_status = 1
         else:
             xray_status = 0
         return xray_status
 
-    def _is_laser_on(self, wvfm, medfilt_size=7, threshold=600.0):
-        print signal.medfilt(wvfm, medfilt_size)[175:180].mean()
-        if np.any( signal.medfilt(wvfm, medfilt_size)[175:180].mean() > threshold ):
+    #def _is_laser_on(self, wvfm, medfilt_size=7, threshold=600.0):
+        #print signal.medfilt(wvfm, medfilt_size)[175:180].mean()
+        #if np.any( signal.medfilt(wvfm, medfilt_size)[175:180].mean() > threshold ):
+        #    laser_status = 1
+        #else:
+        #    laser_status = 0
+    #    return laser_status
+
+    def _is_laser_on(self, evr_codes):
+        if 183 in evr_codes:
             laser_status = 1
-        else:
+        elif 184 in evr_codes:
             laser_status = 0
+        else:
+            laser_status = 'unkn'
         return laser_status
 
     @property
@@ -124,8 +133,10 @@ for evt in ds.events():
     cspad = evt.get(psana.CsPad.DataV2, cspad_ds1_src)
     if cspad:
         ds1 = np.vstack([ cspad.quads(i).data() for i in range(4) ])
-        #print np.sum((ds1 > 1500) * (ds1 < 5000))
-        #print ds1.sum() - 3429322983
+        ds1 = ds1.copy().astype(DARK.dtype)
+        ds1 -= DARK
+        ds1 /= float(np.product(ds1.shape))
+        #print ds1.sum() / float(np.product(ds1.shape))
     else:
         print 'no cspad data'
         continue
@@ -137,27 +148,28 @@ for evt in ds.events():
  
 
     # --> IPM
-    ipm = evt.get(psana.Ipimb.DataV2, dg2_src)
-    if ipm is None:
-        print 'No IMP'
-        continue
-    ipm_voltage = ipm.channel0Volts() + ipm.channel1Volts() +\
-                  ipm.channel2Volts() + ipm.channel3Volts()
+    #ipm = evt.get(psana.Ipimb.DataV2, dg2_src)
+    #if ipm is None:
+    #    print 'No IMP'
+    #    continue
+    #ipm_voltage = ipm.channel0Volts() + ipm.channel1Volts() +\
+    #              ipm.channel2Volts() + ipm.channel3Volts()
 
     for evr_object in evr_objects:
         if evr_object.code in shot_evrs:
-            evr_object.add_shot(ipm_voltage, aqiris_wvfm)
+            evr_object.add_shot(ds1, shot_evrs)
 
 
     if shot_index % 100 == 0:
-        print ERASE_LINE * (5 + len(evr_objects))
+        print ERASE_LINE * (6 + len(evr_objects))
         print '\n\n -- REPORT (%d shots) --' % shot_index
         print 'CODE\t% LASER\t% XRAY'
         for evr_object in evr_objects:
             print '%s\t%.2f\t%.2f' % (evr_object.code,
                                       evr_object.percent_laser_on,
                                       evr_object.percent_xray_on)
-
+        print 'RATIO PUMP: %.2f' % (float(evr_objects[2].num_shots) /\
+                                    (float(evr_objects[3].num_shots)+1e-16))
     shot_index += 1
 
 
