@@ -43,7 +43,7 @@ class RadialAverager(object):
         self._normalization_array = (np.bincount( self._bin_assignments.flatten(), weights=self.mask.flatten() ) \
                                     + 1e-100).astype(np.float)
 
-        assert self.n_bins == self._bin_assignments.max() + 1, 'incorrect bin assignments'
+        assert self.n_bins >= self._bin_assignments.max() + 1, 'incorrect bin assignments'
         self._normalization_array = self._normalization_array[:self.n_bins]
 
         return
