@@ -13,7 +13,7 @@ import psana
 
 
 ERASE_LINE = '\x1b[1A\x1b[2K'
-DARK = np.load('/reg/neh/home2/tjlane/run139.npy')
+#DARK = np.load('/reg/neh/home2/tjlane/run139.npy')
 
 
 parser = argparse.ArgumentParser(description='Average some runs from the current experiment')
@@ -61,9 +61,17 @@ for evt in ds.events():
     aqiris = evt.get(psana.Acqiris.DataDescV1, aqiris_src)
     aqiris_wvfm = aqiris.data(5).waveforms().flatten() # channel 6 waveform
 
-    plt.cla()
-    plt.plot( signal.medfilt(aqiris_wvfm, 5) )
+    #plt.cla()
+    if 183 in shot_evrs:
+        plt.plot( signal.medfilt(aqiris_wvfm, 5), color='b' )
+    elif 184 in shot_evrs:
+        plt.plot( signal.medfilt(aqiris_wvfm, 5), color='r' )
+    else:
+        plt.plot( signal.medfilt(aqiris_wvfm, 5), color='g' )
+
+    plt.xlim([400, 550])
     plt.draw()
+
 
     shot_index += 1
 

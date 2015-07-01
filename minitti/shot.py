@@ -81,11 +81,14 @@ class Event(object):
     @property
     def xfel_status(self):
         if (187 in self.evr_codes) and not (189 in self.evr_codes):
-            status = 1
+            status = 0 #1 BACKWARDS TEST
         elif not (187 in self.evr_codes) and (189 in self.evr_codes):
-            status = 0
+            status = 1 #0 BACKWARDS TESTS
+        #if sum([ (code in self.evr_codes) for code in [180, 189] ]):
+        #     status = 0
         else:
-            status = 'unknown'
+            print 'WARNING xfel STATUS UNKNOWN'
+            status = 0 # 'unknown'
         return status
         
     @property

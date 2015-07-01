@@ -50,7 +50,7 @@ class MinittiAnalyzer(core.MapReducer):
         
         # masks/geometries are (32, 185, 388)
         ds1_qs = np.load('/reg/data/ana14/cxi/cxif7214/res/geometries/v2/q_values.npy')
-        ds1_mask = np.load('/reg/d/psdm/cxi/cxif7214/res/masks/v4/r61-72_mask.npy')
+        ds1_mask = np.load('/reg/d/psdm/cxi/cxif7214/res/masks/v3/no_ring_mask.npy')
         self.ds1_ra = RadialAverager(ds1_qs, ds1_mask, n_bins=n_q_bins)        
 
         return
@@ -104,9 +104,6 @@ class MinittiAnalyzer(core.MapReducer):
                       0.0, corrected=True)
         except Exception as e:
             print e
-            return np.zeros(n_q_bins)
-
-        if x.xfel_status == 0:
             return np.zeros(n_q_bins)
 
         if x.ds1_intensities != None:
@@ -178,14 +175,10 @@ class MinittiAnalyzer(core.MapReducer):
             self.socket.send_pyobj(transmission)
 
             if self.offline:
-                savepath = '/reg/d/psdm/cxi/cxif7214/scratch/laser_on_off_summary/run%d.h5' % self.args.run
-                f = h5py.File(savepath, 'w')
-                f['/num_laseron']  = self.laseron_iv.num_samples
-                f['/num_laseroff'] = self.laseroff_iv.num_samples
-                f['/laseron_avg']  = self.laseron_iv.mean
-                f['/laseroff_avg'] = self.laseroff_iv.mean
-                f['/laseron_std']  = self.laseron_iv.std
-                f['/laseroff_std'] = self.laseroff_iv.std
+                savepath = '/reg/d/psdm/cxi/cxif7214/scratch/convergence/run%d.h5' % self.args.run
+                f = h5py.File(savepath, 'a')
+                f['/laseron_%dshots' % self.laseron_iv.num_samples]  = self.laseron_iv.mean
+                f['/laseroff_%dshots' % self.laseroff_iv.num_samples] = self.laseroff_iv.mean
                 f.close()
         
         return
